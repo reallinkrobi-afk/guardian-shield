@@ -118,8 +118,8 @@ export default function App() {
     }
 
     fetchState();
-    // Poll every 2.5 seconds for live cross-device sync
-    const interval = setInterval(fetchState, 2500);
+    // Poll every 1.5 seconds for live cross-device sync
+    const interval = setInterval(fetchState, 1500);
     return () => clearInterval(interval);
   }, [isCapacitor, selectedDeviceId]);
 
