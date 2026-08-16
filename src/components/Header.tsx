@@ -1,5 +1,5 @@
 import React from 'react';
-import { ViewMode, ActiveTab } from '../types';
+import { ViewMode, ActiveTab, DeviceSummary } from '../types';
 import { 
   ShieldCheck, 
   Smartphone, 
@@ -14,10 +14,9 @@ import {
   Lock, 
   Unlock, 
   Link,
-  Wifi,
   BatteryCharging,
   Battery,
-  ShieldAlert
+  ChevronDown
 } from 'lucide-react';
 
 interface HeaderProps {
@@ -38,6 +37,9 @@ interface HeaderProps {
   riskLevel: string;
   activeCamera?: string;
   isAudioListening?: boolean;
+  devices?: DeviceSummary[];
+  selectedDeviceId?: string;
+  onSelectDevice?: (deviceId: string) => void;
 }
 
 export const Header: React.FC<HeaderProps> = ({
@@ -57,7 +59,10 @@ export const Header: React.FC<HeaderProps> = ({
   safetyScore,
   riskLevel,
   activeCamera = 'off',
-  isAudioListening = false
+  isAudioListening = false,
+  devices = [],
+  selectedDeviceId,
+  onSelectDevice
 }) => {
   const tabs: Array<{ id: ActiveTab; label: string; icon: React.ReactNode; badge?: React.ReactNode }> = [
     { 
@@ -118,7 +123,7 @@ export const Header: React.FC<HeaderProps> = ({
         {/* Top Header Bar */}
         <div className="flex flex-col md:flex-row items-center justify-between py-3 gap-3 border-b border-slate-100">
           
-          {/* Brand & Target Child */}
+          {/* Brand & Multi-Device Selector */}
           <div className="flex items-center gap-3 w-full md:w-auto justify-between md:justify-start">
             <div className="flex items-center gap-2.5">
               <div className="w-9 h-9 rounded-xl bg-gradient-to-br from-orange-500 to-amber-600 flex items-center justify-center shadow-sm shadow-orange-500/20 text-white">
@@ -131,12 +136,31 @@ export const Header: React.FC<HeaderProps> = ({
                     Live Sync
                   </span>
                 </h1>
-                <p className="text-[11px] text-slate-500 flex items-center gap-1.5 font-mono">
-                  Target: <span className="text-slate-800 font-semibold">{isOnline ? childName : 'No Device Paired'}</span>
-                  {isOnline && pairingCode && (
-                    <span className="text-[10px] text-slate-400">({pairingCode})</span>
-                  )}
-                </p>
+                
+                {/* Device Selector Dropdown */}
+                {devices.length > 1 && onSelectDevice ? (
+                  <div className="relative inline-block mt-0.5">
+                    <select
+                      value={selectedDeviceId || ''}
+                      onChange={(e) => onSelectDevice(e.target.value)}
+                      className="text-[11px] font-bold text-slate-800 bg-slate-100 hover:bg-slate-200 border border-slate-300 rounded-lg px-2 py-0.5 pr-6 appearance-none cursor-pointer focus:outline-hidden"
+                    >
+                      {devices.map(d => (
+                        <option key={d.deviceId} value={d.deviceId}>
+                          📱 {d.deviceModel || 'Phone'} ({d.pairingCode}) - {d.isOnline ? 'Online' : 'Offline'}
+                        </option>
+                      ))}
+                    </select>
+                    <ChevronDown className="w-3 h-3 text-slate-500 absolute right-1.5 top-1.5 pointer-events-none" />
+                  </div>
+                ) : (
+                  <p className="text-[11px] text-slate-500 flex items-center gap-1.5 font-mono">
+                    Target: <span className="text-slate-800 font-semibold">{isOnline ? childName : 'No Device Paired'}</span>
+                    {isOnline && pairingCode && (
+                      <span className="text-[10px] text-slate-400">({pairingCode})</span>
+                    )}
+                  </p>
+                )}
               </div>
             </div>
 
@@ -182,7 +206,7 @@ export const Header: React.FC<HeaderProps> = ({
               className="px-3 py-1.5 bg-slate-100 hover:bg-slate-200 text-slate-750 border border-slate-300 rounded-xl text-xs font-bold flex items-center gap-1.5 transition-all shadow-2xs"
             >
               <Link className="w-3.5 h-3.5 text-orange-600" />
-              <span>Pair Device</span>
+              <span>{devices.length > 0 ? '+ Pair Device' : 'Pair Device'}</span>
             </button>
 
             {/* Instant Screen Lock / Unlock Toggle Button */}
