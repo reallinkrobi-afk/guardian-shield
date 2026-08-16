@@ -149,31 +149,10 @@ export const Header: React.FC<HeaderProps> = ({
             </div>
           </div>
 
-          {/* Mode Switcher: Parent Dashboard vs Child Mode */}
-          <div className="flex items-center bg-slate-100 p-1 rounded-xl border border-slate-200/80 w-full md:w-auto justify-center">
-            <button
-              onClick={() => setViewMode('parent')}
-              className={`flex-1 md:flex-initial flex items-center justify-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-bold transition-all duration-150 ${
-                viewMode === 'parent'
-                  ? 'bg-orange-600 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
-              }`}
-            >
-              <ShieldCheck className="w-3.5 h-3.5" />
-              <span>Parent Dashboard</span>
-            </button>
-
-            <button
-              onClick={() => setViewMode('child')}
-              className={`flex-1 md:flex-initial flex items-center justify-center gap-1.5 px-4 py-1.5 rounded-lg text-xs font-bold transition-all duration-150 ${
-                viewMode === 'child'
-                  ? 'bg-slate-900 text-white shadow-xs'
-                  : 'text-slate-600 hover:text-slate-900 hover:bg-slate-200/50'
-              }`}
-            >
-              <Smartphone className="w-3.5 h-3.5" />
-              <span>Child Mode (Phone)</span>
-            </button>
+          {/* Parent Portal Status Badge */}
+          <div className="flex items-center gap-2 bg-slate-100/90 p-1.5 rounded-xl border border-slate-200 text-xs font-bold text-slate-700">
+            <ShieldCheck className="w-4 h-4 text-orange-600" />
+            <span>Parent Control Center</span>
           </div>
 
           {/* Right Action Controls */}
