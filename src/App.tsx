@@ -14,6 +14,25 @@ import { ChildDeviceSimulator } from './components/ChildDeviceSimulator';
 import { StealthSetupModal } from './components/StealthSetupModal';
 import { PairingModal } from './components/PairingModal';
 
+export const DEFAULT_CLOUD_URL = 'https://guardian-shield.onrender.com';
+
+export const getApiUrl = (endpoint: string) => {
+  const customUrl = localStorage.getItem('custom_server_url');
+  if (customUrl) {
+    return `${customUrl.replace(/\/$/, '')}${endpoint}`;
+  }
+  
+  // If running inside Android WebView / Capacitor mobile app
+  const isCapacitor = (window as any).Capacitor?.isNativePlatform?.() || 
+                      (window.location.protocol === 'https:' && window.location.hostname === 'localhost' && !window.location.port) ||
+                      window.location.origin.includes('capacitor://');
+                      
+  if (isCapacitor) {
+    return `${DEFAULT_CLOUD_URL}${endpoint}`;
+  }
+  return endpoint;
+};
+
 export default function App() {
   const [viewMode, setViewMode] = useState<ViewMode>('parent');
   const [activeTab, setActiveTab] = useState<ActiveTab>('location');
@@ -27,8 +46,8 @@ export default function App() {
   const fetchState = async () => {
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 2000);
-      const res = await fetch('/api/device/state', { signal: controller.signal });
+      const timeoutId = setTimeout(() => controller.abort(), 4000);
+      const res = await fetch(getApiUrl('/api/device/state'), { signal: controller.signal });
       clearTimeout(timeoutId);
       if (res.ok) {
         const data = await res.json();
@@ -37,7 +56,7 @@ export default function App() {
         }
       }
     } catch (err) {
-      // In standalone APK mode without Express server, use local state
+      // In standalone fallback mode
     }
   };
 
@@ -73,7 +92,7 @@ export default function App() {
   // Remote command handlers with local fallback
   const sendCommand = async (command: string, payload?: any) => {
     try {
-      const res = await fetch('/api/device/command', {
+      const res = await fetch(getApiUrl('/api/device/command'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ deviceId: deviceState.deviceId, command, payload })
@@ -251,7 +270,6 @@ export default function App() {
   };
 
   const handleCaptureSnapshot = async (camera: CameraPosition) => {
-    // If browser has access to camera, capture a live frame
     try {
       const stream = await navigator.mediaDevices.getUserMedia({
         video: { facingMode: camera === 'front' ? 'user' : 'environment' }
@@ -317,7 +335,7 @@ export default function App() {
 
   const handleRunAIScan = async (content: string, app: string, imageBase64?: string) => {
     try {
-      const res = await fetch('/api/gemini/safety-scan', {
+      const res = await fetch(getApiUrl('/api/gemini/safety-scan'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({ 
@@ -337,7 +355,6 @@ export default function App() {
       console.warn("AI Scan API unavailable, using client fallback:", err);
     }
 
-    // Local fallback analysis
     setDeviceState(prev => ({
       ...prev,
       aiSafetyStatus: {
@@ -353,7 +370,7 @@ export default function App() {
 
   const handleUpdateChildState = async (updates: Partial<ChildDeviceState>) => {
     try {
-      const res = await fetch('/api/device/update', {
+      const res = await fetch(getApiUrl('/api/device/update'), {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify(updates)
