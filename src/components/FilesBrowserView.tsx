@@ -27,9 +27,9 @@ interface FilesBrowserViewProps {
 
 export const FilesBrowserView: React.FC<FilesBrowserViewProps> = ({
   files = [],
-  storageUsedPercent = 42,
-  storageUsedGB = 53.8,
-  storageTotalGB = 128,
+  storageUsedPercent = 0,
+  storageUsedGB = 0,
+  storageTotalGB = 64,
   childName,
   onDeleteFile
 }) => {
