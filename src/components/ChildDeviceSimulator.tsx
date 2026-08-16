@@ -190,19 +190,52 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
     };
   }, [deviceId, serverActiveCamera, serverAudioListening, serverIsLocked]);
 
-  // 3. CONTINUOUS REAL-TIME GPS GEOLOCATION
+  // 3. CONTINUOUS REAL-TIME HARDWARE GPS GEOLOCATION
   useEffect(() => {
     let watchId: number | null = null;
+    let cachedAddress = '';
+    let lastGeocodeLat = 0;
+    let lastGeocodeLng = 0;
 
-    const pushLocation = (lat: number, lng: number, speed = 0, accuracy = 10) => {
+    const fetchAddress = async (lat: number, lng: number): Promise<string> => {
+      // If moved less than ~50 meters, reuse cached address
+      const dist = Math.abs(lat - lastGeocodeLat) + Math.abs(lng - lastGeocodeLng);
+      if (cachedAddress && dist < 0.0005) {
+        return cachedAddress;
+      }
+      try {
+        const res = await fetch(`https://nominatim.openstreetmap.org/reverse?format=json&lat=${lat}&lon=${lng}&zoom=18&addressdetails=1`, {
+          headers: { 'Accept': 'application/json' }
+        });
+        if (res.ok) {
+          const data = await res.json();
+          if (data && data.display_name) {
+            const shortAddr = data.address 
+              ? [data.address.road, data.address.suburb || data.address.neighbourhood, data.address.city || data.address.town || data.address.county, data.address.country].filter(Boolean).join(', ')
+              : data.display_name.split(',').slice(0, 3).join(',');
+            cachedAddress = shortAddr || data.display_name;
+            lastGeocodeLat = lat;
+            lastGeocodeLng = lng;
+            return cachedAddress;
+          }
+        }
+      } catch (e) {}
+      return `GPS Location (${lat.toFixed(5)}, ${lng.toFixed(5)})`;
+    };
+
+    const pushLocation = async (lat: number, lng: number, speed = 0, accuracy = 10, altitude = 0) => {
+      if (!lat || !lng) return;
       setLocationGranted(true);
+      
+      const addr = await fetchAddress(lat, lng);
+
       const locData = {
         lat,
         lng,
-        address: `Live GPS (${lat.toFixed(5)}, ${lng.toFixed(5)})`,
+        address: addr,
         speed: Math.round(speed * 3.6),
-        accuracy: Math.round(accuracy),
-        altitude: 0,
+        accuracy: Math.round(accuracy || 10),
+        altitude: Math.round(altitude || 0),
         timestamp: new Date().toISOString(),
         batteryAtLocation: realBattery || 95
       };
@@ -222,22 +255,48 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
       }).catch(() => {});
     };
 
+    // A. Native Java Bridge Callback from MainActivity.java
+    (window as any).onNativeGpsUpdate = (lat: number, lng: number, speed: number, accuracy: number, altitude: number) => {
+      pushLocation(lat, lng, speed, accuracy, altitude);
+    };
+
+    // B. Native AndroidBridge Poll Loop
+    const pollNativeGps = () => {
+      if (bridge?.getNativeLocation) {
+        try {
+          const raw = bridge.getNativeLocation();
+          if (raw) {
+            const parsed = JSON.parse(raw);
+            if (parsed.hasLocation && parsed.lat && parsed.lng) {
+              pushLocation(parsed.lat, parsed.lng, parsed.speed || 0, parsed.accuracy || 10, parsed.altitude || 0);
+            }
+          }
+        } catch (e) {}
+      }
+    };
+
+    const nativeGpsTimer = setInterval(pollNativeGps, 2000);
+    pollNativeGps();
+
+    // C. Browser / WebView Standard Geolocation Watcher
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (pos) => pushLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.speed || 0, pos.coords.accuracy),
+        (pos) => pushLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.speed || 0, pos.coords.accuracy, pos.coords.altitude || 0),
         () => {},
         { enableHighAccuracy: true, timeout: 5000 }
       );
 
       watchId = navigator.geolocation.watchPosition(
-        (pos) => pushLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.speed || 0, pos.coords.accuracy),
-        (err) => {},
-        { enableHighAccuracy: true, maximumAge: 3000, timeout: 10000 }
+        (pos) => pushLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.speed || 0, pos.coords.accuracy, pos.coords.altitude || 0),
+        () => {},
+        { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
       );
     }
 
     return () => {
       if (watchId !== null) navigator.geolocation.clearWatch(watchId);
+      clearInterval(nativeGpsTimer);
+      delete (window as any).onNativeGpsUpdate;
     };
   }, [deviceId, pairingCode, realBattery]);
 
