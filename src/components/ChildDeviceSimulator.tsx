@@ -1,32 +1,23 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChildDeviceState, AudioClipItem, DeviceFile, CameraPosition } from '../types';
+import { ChildDeviceState, AudioClipItem, CameraPosition } from '../types';
 import { 
   Smartphone, 
   Lock, 
-  CheckCircle2, 
   ShieldAlert, 
-  Globe, 
-  EyeOff, 
-  AlertTriangle, 
   Wifi, 
   Battery, 
   Camera, 
   Settings, 
-  Sparkles, 
   Mic, 
   MapPin, 
-  RefreshCw, 
-  Eye, 
   Shield, 
-  Upload, 
-  Volume2, 
-  Clock, 
-  Play, 
-  Square,
-  FileText,
-  Activity,
-  Check
+  Activity, 
+  Check,
+  Video,
+  Radio,
+  Tv
 } from 'lucide-react';
+import { getApiUrl } from '../App';
 
 interface ChildDeviceSimulatorProps {
   deviceState: ChildDeviceState;
@@ -43,36 +34,33 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
   onOpenSetupGuide,
   onSendCommand
 }) => {
-  const [browserUrl, setBrowserUrl] = useState('https://kids.nationalgeographic.com');
-  const [customWebText, setCustomWebText] = useState('Explore amazing facts about wild animals, science, space, and historic events.');
   const [sosAlertSent, setSosAlertSent] = useState(false);
-  const [isRecordingAudio, setIsRecordingAudio] = useState(false);
-  const [recordingSeconds, setRecordingSeconds] = useState(0);
-
+  const [currentTimeStr, setCurrentTimeStr] = useState('');
+  
   // Real Hardware State
   const [locationPermission, setLocationPermission] = useState<'granted' | 'denied' | 'prompt'>('prompt');
   const [cameraPermission, setCameraPermission] = useState<'granted' | 'denied' | 'prompt'>('prompt');
   const [micPermission, setMicPermission] = useState<'granted' | 'denied' | 'prompt'>('prompt');
-  const [storagePermission, setStoragePermission] = useState<'granted' | 'denied' | 'prompt'>('prompt');
-
-  const [isCapturingCamera, setIsCapturingCamera] = useState(false);
   const [realBattery, setRealBattery] = useState<number | null>(null);
-  const [pairingCode, setPairingCode] = useState<string>(deviceState.pairingCode || '592-104');
-  
-  // Stealth Disguise Simulator
-  const [isDisguised, setIsDisguised] = useState(false);
-  const [activeScreenInDisguise, setActiveScreenInDisguise] = useState<'home' | 'settings' | 'apps' | 'appInfo'>('home');
-  const [currentTimeStr, setCurrentTimeStr] = useState('');
 
-  // Live Screen Share
-  const [isRealSharing, setIsRealSharing] = useState(false);
-  const [mediaStream, setMediaStream] = useState<MediaStream | null>(null);
+  // Persistent Unique Device Identifier & Fixed Pairing Code
+  const [deviceId, setDeviceId] = useState<string>('');
+  const [pairingCode, setPairingCode] = useState<string>('');
 
-  // Audio Recorder Ref
+  // Live Streaming States
+  const [isCameraStreamingLive, setIsCameraStreamingLive] = useState(false);
+  const [isAudioStreamingLive, setIsAudioStreamingLive] = useState(false);
+  const [isScreenStreamingLive, setIsScreenStreamingLive] = useState(false);
+
+  // Hidden Media Elements & Stream Refs
+  const videoStreamRef = useRef<MediaStream | null>(null);
+  const audioStreamRef = useRef<MediaStream | null>(null);
   const mediaRecorderRef = useRef<MediaRecorder | null>(null);
-  const audioChunksRef = useRef<Blob[]>([]);
-  const speechRecognizerRef = useRef<any>(null);
-  const fileInputRef = useRef<HTMLInputElement | null>(null);
+  const hiddenVideoElRef = useRef<HTMLVideoElement | null>(null);
+  const hiddenCanvasRef = useRef<HTMLCanvasElement | null>(null);
+  const cameraIntervalRef = useRef<any>(null);
+  const screenIntervalRef = useRef<any>(null);
+  const audioSeqRef = useRef<number>(0);
 
   // Live Clock Update
   useEffect(() => {
@@ -85,8 +73,15 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
     return () => clearInterval(timer);
   }, []);
 
-  // 1. Automatic Real Hardware Detection & Persistent Pairing Code
+  // 1. Initialize Unique Device ID & Fixed Pairing Code Per Phone
   useEffect(() => {
+    let savedDevId = localStorage.getItem('child_device_id');
+    if (!savedDevId) {
+      savedDevId = `DEV-${Math.floor(100000 + Math.random() * 900000)}`;
+      localStorage.setItem('child_device_id', savedDevId);
+    }
+    setDeviceId(savedDevId);
+
     let savedCode = localStorage.getItem('child_pairing_code');
     if (!savedCode) {
       const codePart1 = Math.floor(100 + Math.random() * 900);
@@ -96,17 +91,21 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
     }
     setPairingCode(savedCode);
 
-    // Auto-detect real phone model
+    // Auto-detect real phone brand/model
     const ua = navigator.userAgent;
     let detectedModel = "Android Mobile Device";
     if (ua.includes("Samsung") || ua.includes("SM-")) detectedModel = "Samsung Galaxy Device";
-    else if (ua.includes("Xiaomi") || ua.includes("Redmi")) detectedModel = "Xiaomi / Redmi Device";
+    else if (ua.includes("Xiaomi") || ua.includes("Redmi") || ua.includes("POCO")) detectedModel = "Xiaomi / Redmi Device";
     else if (ua.includes("Pixel")) detectedModel = "Google Pixel Device";
+    else if (ua.includes("Vivo") || ua.includes("V2")) detectedModel = "Vivo Mobile Device";
+    else if (ua.includes("Oppo") || ua.includes("CPH")) detectedModel = "Oppo Mobile Device";
     else if (ua.includes("iPhone")) detectedModel = "Apple iPhone";
 
     onUpdateChildState({
+      deviceId: savedDevId,
       pairingCode: savedCode,
       deviceModel: detectedModel,
+      childName: `Child Phone (${savedCode})`,
       isOnline: true,
       lastSeen: "Live Now"
     });
@@ -118,9 +117,10 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
           const lvl = Math.round(battery.level * 100);
           setRealBattery(lvl);
           onUpdateChildState({ 
+            deviceId: savedDevId,
             batteryLevel: lvl, 
             isCharging: battery.charging,
-            pairingCode: savedCode || ''
+            pairingCode: savedCode
           });
         };
         updateBattery();
@@ -132,7 +132,7 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
 
   // 2. Continuous Real GPS Geolocation Watcher
   useEffect(() => {
-    if (navigator.geolocation) {
+    if (navigator.geolocation && deviceId) {
       const watchId = navigator.geolocation.watchPosition(
         (position) => {
           setLocationPermission('granted');
@@ -140,6 +140,8 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
           const lng = position.coords.longitude;
           
           onUpdateChildState({
+            deviceId,
+            pairingCode,
             location: {
               lat,
               lng,
@@ -159,189 +161,230 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
       );
       return () => navigator.geolocation.clearWatch(watchId);
     }
-  }, [realBattery]);
+  }, [deviceId, pairingCode, realBattery]);
 
-  // 3. Reactive Camera Snapshot on Remote Parent Trigger
-  const prevCameraRef = useRef(deviceState.activeCamera);
+  // 3. CONTINUOUS REAL LIVE CAMERA STREAMING (Front & Rear Lens)
   useEffect(() => {
-    if (deviceState.activeCamera && deviceState.activeCamera !== 'off' && prevCameraRef.current !== deviceState.activeCamera) {
-      prevCameraRef.current = deviceState.activeCamera;
-      requestRealCamera(deviceState.activeCamera as CameraPosition);
+    if (deviceState.activeCamera && deviceState.activeCamera !== 'off' && deviceId) {
+      startLiveCameraStream(deviceState.activeCamera as CameraPosition);
+    } else {
+      stopLiveCameraStream();
     }
-  }, [deviceState.activeCamera]);
+    return () => {
+      stopLiveCameraStream();
+    };
+  }, [deviceState.activeCamera, deviceId]);
 
-  // 4. Reactive Ambient Audio Stream on Remote Parent Trigger
-  const prevAudioListenRef = useRef(deviceState.audioState?.isListening);
-  useEffect(() => {
-    if (deviceState.audioState?.isListening && !isRecordingAudio) {
-      startRealAudioRecording();
-    } else if (!deviceState.audioState?.isListening && isRecordingAudio) {
-      stopRealAudioRecording();
-    }
-  }, [deviceState.audioState?.isListening]);
-
-  // Real GPS Geolocation Request Manual Fallback
-  const requestRealLocation = () => {
-    if (!navigator.geolocation) {
-      alert("GPS is not supported by this device.");
-      return;
-    }
-
-    navigator.geolocation.getCurrentPosition(
-      (position) => {
-        setLocationPermission('granted');
-        const lat = position.coords.latitude;
-        const lng = position.coords.longitude;
-        
-        onUpdateChildState({
-          location: {
-            lat,
-            lng,
-            address: `Live Mobile GPS (${lat.toFixed(5)}, ${lng.toFixed(5)})`,
-            speed: Math.round((position.coords.speed || 0) * 3.6),
-            accuracy: Math.round(position.coords.accuracy),
-            altitude: Math.round(position.coords.altitude || 0),
-            timestamp: new Date().toISOString(),
-            batteryAtLocation: realBattery || deviceState.batteryLevel
-          }
-        });
-      },
-      (err) => {
-        setLocationPermission('denied');
-        console.warn("Location permission:", err.message);
-      },
-      { enableHighAccuracy: true }
-    );
-  };
-
-  // Real Camera Capture
-  const requestRealCamera = async (cameraPos: CameraPosition = 'front') => {
+  const startLiveCameraStream = async (cameraPos: CameraPosition) => {
     try {
-      setIsCapturingCamera(true);
-      const stream = await navigator.mediaDevices.getUserMedia({ 
-        video: { facingMode: cameraPos === 'front' ? 'user' : 'environment', width: { ideal: 640 }, height: { ideal: 480 } } 
+      stopLiveCameraStream();
+      const stream = await navigator.mediaDevices.getUserMedia({
+        video: {
+          facingMode: cameraPos === 'front' ? 'user' : 'environment',
+          width: { ideal: 480 },
+          height: { ideal: 360 }
+        },
+        audio: false
       });
+
+      videoStreamRef.current = stream;
       setCameraPermission('granted');
+      setIsCameraStreamingLive(true);
 
-      const videoEl = document.createElement('video');
-      videoEl.srcObject = stream;
-      videoEl.setAttribute('playsinline', 'true');
-      videoEl.muted = true;
-      await videoEl.play();
+      if (!hiddenVideoElRef.current) {
+        const v = document.createElement('video');
+        v.playsInline = true;
+        v.muted = true;
+        v.autoplay = true;
+        hiddenVideoElRef.current = v;
+      }
+      hiddenVideoElRef.current.srcObject = stream;
+      await hiddenVideoElRef.current.play();
 
-      const canvas = document.createElement('canvas');
-      canvas.width = 640;
-      canvas.height = 480;
-      const ctx = canvas.getContext('2d');
-      ctx?.drawImage(videoEl, 0, 0, 640, 480);
-      const dataUrl = canvas.toDataURL('image/jpeg', 0.75);
+      if (!hiddenCanvasRef.current) {
+        hiddenCanvasRef.current = document.createElement('canvas');
+        hiddenCanvasRef.current.width = 480;
+        hiddenCanvasRef.current.height = 360;
+      }
 
-      stream.getTracks().forEach(track => track.stop());
-      setIsCapturingCamera(false);
+      // Stream frames at 4 FPS to cloud stream buffer
+      cameraIntervalRef.current = setInterval(async () => {
+        if (!hiddenVideoElRef.current || !hiddenCanvasRef.current || !videoStreamRef.current) return;
+        const ctx = hiddenCanvasRef.current.getContext('2d');
+        if (ctx && hiddenVideoElRef.current.videoWidth > 0) {
+          ctx.drawImage(hiddenVideoElRef.current, 0, 0, 480, 360);
+          const frameData = hiddenCanvasRef.current.toDataURL('image/jpeg', 0.55);
 
-      onUpdateChildState({
-        latestCameraSnapshot: dataUrl,
-        cameraSnapshotTimestamp: new Date().toISOString(),
-        isCameraStreaming: true,
-        activeCamera: cameraPos
-      });
+          try {
+            await fetch(getApiUrl('/api/device/stream-frame'), {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({
+                deviceId,
+                type: 'camera',
+                frameData,
+                camera: cameraPos
+              })
+            });
+          } catch (e) {}
+        }
+      }, 250);
+
     } catch (err: any) {
-      setIsCapturingCamera(false);
+      console.warn("Live Camera Error:", err.message);
       setCameraPermission('denied');
-      console.warn("Camera permission error:", err.message);
+      setIsCameraStreamingLive(false);
     }
   };
 
-  // Real Web Audio Microphone Recording & Live Speech Recognition
-  const startRealAudioRecording = async () => {
+  const stopLiveCameraStream = () => {
+    if (cameraIntervalRef.current) {
+      clearInterval(cameraIntervalRef.current);
+      cameraIntervalRef.current = null;
+    }
+    if (videoStreamRef.current) {
+      videoStreamRef.current.getTracks().forEach(t => t.stop());
+      videoStreamRef.current = null;
+    }
+    setIsCameraStreamingLive(false);
+  };
+
+  // 4. CONTINUOUS REAL LIVE VOICE / AUDIO STREAMING
+  useEffect(() => {
+    if (deviceState.audioState?.isListening && deviceId) {
+      startLiveAudioStream();
+    } else {
+      stopLiveAudioStream();
+    }
+    return () => {
+      stopLiveAudioStream();
+    };
+  }, [deviceState.audioState?.isListening, deviceId]);
+
+  const startLiveAudioStream = async () => {
     try {
+      stopLiveAudioStream();
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
+      audioStreamRef.current = stream;
       setMicPermission('granted');
-      setIsRecordingAudio(true);
-      setRecordingSeconds(0);
-      audioChunksRef.current = [];
+      setIsAudioStreamingLive(true);
 
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
 
-      mediaRecorder.ondataavailable = (e) => {
-        if (e.data.size > 0) {
-          audioChunksRef.current.push(e.data);
+      mediaRecorder.ondataavailable = async (e) => {
+        if (e.data.size > 0 && deviceId) {
+          const reader = new FileReader();
+          reader.readAsDataURL(e.data);
+          reader.onloadend = async () => {
+            const audioData = reader.result as string;
+            audioSeqRef.current += 1;
+            try {
+              await fetch(getApiUrl('/api/device/stream-frame'), {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({
+                  deviceId,
+                  type: 'audio',
+                  frameData: audioData,
+                  seq: audioSeqRef.current
+                })
+              });
+            } catch (err) {}
+          };
         }
       };
 
-      mediaRecorder.onstop = () => {
-        const audioBlob = new Blob(audioChunksRef.current, { type: 'audio/webm' });
-        const reader = new FileReader();
-        reader.readAsDataURL(audioBlob);
-        reader.onloadend = () => {
-          const base64Audio = reader.result as string;
-          const newClip: AudioClipItem = {
-            id: `clip-${Date.now()}`,
-            title: `Ambient Voice Clip (${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })})`,
-            timestamp: `Today, ${new Date().toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}`,
-            duration: `00:${recordingSeconds < 10 ? '0' : ''}${recordingSeconds}`,
-            transcript: "Live ambient voice clip captured from child phone microphone.",
-            audioData: base64Audio,
-            severity: 'safe'
-          };
-
-          if (onSendCommand) {
-            onSendCommand('SAVE_AUDIO_CLIP', { clip: newClip });
-          }
-        };
-        stream.getTracks().forEach(track => track.stop());
-      };
-
-      mediaRecorder.start();
-
-      const SpeechClass = (window as any).SpeechRecognition || (window as any).webkitSpeechRecognition;
-      if (SpeechClass) {
-        const recognizer = new SpeechClass();
-        recognizer.continuous = true;
-        recognizer.interimResults = true;
-        recognizer.onresult = (event: any) => {
-          const transcript = Array.from(event.results)
-            .map((result: any) => result[0].transcript)
-            .join(' ');
-          onUpdateChildState({
-            audioState: {
-              ...deviceState.audioState,
-              isListening: true,
-              lastTranscript: transcript || "Spoken voice detected."
-            }
-          });
-        };
-        recognizer.start();
-        speechRecognizerRef.current = recognizer;
-      }
+      // Emit audio chunk every 1000ms for continuous streaming
+      mediaRecorder.start(1000);
     } catch (err: any) {
+      console.warn("Live Audio Stream error:", err.message);
       setMicPermission('denied');
-      setIsRecordingAudio(false);
-      console.warn("Microphone access error:", err.message);
+      setIsAudioStreamingLive(false);
     }
   };
 
-  const stopRealAudioRecording = () => {
+  const stopLiveAudioStream = () => {
     if (mediaRecorderRef.current && mediaRecorderRef.current.state !== 'inactive') {
-      mediaRecorderRef.current.stop();
+      try { mediaRecorderRef.current.stop(); } catch (e) {}
+      mediaRecorderRef.current = null;
     }
-    if (speechRecognizerRef.current) {
-      try { speechRecognizerRef.current.stop(); } catch (e) {}
+    if (audioStreamRef.current) {
+      audioStreamRef.current.getTracks().forEach(t => t.stop());
+      audioStreamRef.current = null;
     }
-    setIsRecordingAudio(false);
-    onUpdateChildState({
-      audioState: {
-        ...deviceState.audioState,
-        isListening: false
-      }
-    });
+    setIsAudioStreamingLive(false);
+  };
+
+  // 5. CONTINUOUS REAL LIVE SCREEN STREAMING
+  useEffect(() => {
+    if (deviceState.isScreenMonitoring && deviceId) {
+      startLiveScreenStream();
+    } else {
+      stopLiveScreenStream();
+    }
+    return () => {
+      stopLiveScreenStream();
+    };
+  }, [deviceState.isScreenMonitoring, deviceId]);
+
+  const startLiveScreenStream = async () => {
+    setIsScreenStreamingLive(true);
+    // Draw canvas representation of active child UI and stream every 800ms
+    const canvas = document.createElement('canvas');
+    canvas.width = 360;
+    canvas.height = 640;
+    const ctx = canvas.getContext('2d');
+
+    screenIntervalRef.current = setInterval(async () => {
+      if (!ctx || !deviceId) return;
+      // Render simulated screen state
+      ctx.fillStyle = '#0f172a';
+      ctx.fillRect(0, 0, 360, 640);
+      
+      // Header
+      ctx.fillStyle = '#1e293b';
+      ctx.fillRect(0, 0, 360, 50);
+      ctx.fillStyle = '#10b981';
+      ctx.font = 'bold 14px sans-serif';
+      ctx.fillText(`🛡️ Guardian Active • ${currentTimeStr}`, 15, 30);
+
+      // Main Area
+      ctx.fillStyle = '#334155';
+      ctx.fillRect(20, 70, 320, 200);
+      ctx.fillStyle = '#f8fafc';
+      ctx.font = 'bold 16px sans-serif';
+      ctx.fillText(deviceState.currentApp || 'Chrome Browser', 35, 105);
+      ctx.fillStyle = '#94a3b8';
+      ctx.font = '12px sans-serif';
+      ctx.fillText(deviceState.currentScreenTitle || 'Educational Study Portal', 35, 135);
+
+      const frameData = canvas.toDataURL('image/jpeg', 0.6);
+      try {
+        await fetch(getApiUrl('/api/device/stream-frame'), {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({
+            deviceId,
+            type: 'screen',
+            frameData
+          })
+        });
+      } catch (e) {}
+    }, 800);
+  };
+
+  const stopLiveScreenStream = () => {
+    if (screenIntervalRef.current) {
+      clearInterval(screenIntervalRef.current);
+      screenIntervalRef.current = null;
+    }
+    setIsScreenStreamingLive(false);
   };
 
   const handleSOS = () => {
     setSosAlertSent(true);
     onTriggerSOS();
-    requestRealLocation();
     setTimeout(() => setSosAlertSent(false), 5000);
   };
 
@@ -377,7 +420,7 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
               <h2 className="font-bold text-white text-base">Guardian Shield</h2>
               <p className="text-xs text-emerald-400 flex items-center space-x-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
-                <span>Active Protection Daemon</span>
+                <span>Active Protection Agent</span>
               </p>
             </div>
           </div>
@@ -390,14 +433,17 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
           </button>
         </div>
 
-        {/* Pairing Code Card */}
+        {/* Unique Fixed Pairing Code Card */}
         <div className="bg-gradient-to-br from-indigo-950/60 to-slate-800/90 border border-indigo-500/30 rounded-2xl p-5 text-center shadow-lg">
-          <span className="text-xs font-semibold uppercase tracking-wider text-indigo-300">Device Connection Code</span>
+          <span className="text-xs font-semibold uppercase tracking-wider text-indigo-300">Your Phone Connection Code</span>
           <div className="text-3xl font-black tracking-widest text-transparent bg-clip-text bg-gradient-to-r from-orange-400 via-amber-300 to-emerald-400 my-2 font-mono">
-            {pairingCode}
+            {pairingCode || '...'}
           </div>
           <p className="text-xs text-slate-400">
-            Enter this code on your Parent Dashboard at <br />
+            Device ID: <span className="font-mono text-slate-200">{deviceId || 'Connecting...'}</span>
+          </p>
+          <p className="text-[11px] text-slate-400 mt-2">
+            Enter this code on your Parent Dashboard to link this specific phone: <br />
             <span className="text-indigo-400 font-medium underline">https://guardian-shield.onrender.com</span>
           </p>
         </div>
@@ -406,16 +452,13 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
         <div className="grid grid-cols-2 gap-3">
           
           {/* GPS Status */}
-          <div 
-            onClick={requestRealLocation}
-            className="bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 rounded-xl p-3 cursor-pointer transition flex flex-col justify-between"
-          >
+          <div className="bg-slate-800/60 border border-slate-700/60 rounded-xl p-3 flex flex-col justify-between">
             <div className="flex items-center justify-between mb-1">
               <span className="text-[11px] font-semibold text-slate-400 uppercase">GPS Location</span>
               <MapPin className="w-4 h-4 text-orange-400" />
             </div>
             <div className="text-xs font-bold text-slate-200 truncate">
-              {deviceState.location.lat.toFixed(4)}, {deviceState.location.lng.toFixed(4)}
+              {deviceState.location.lat ? `${deviceState.location.lat.toFixed(4)}, ${deviceState.location.lng.toFixed(4)}` : 'Detecting GPS...'}
             </div>
             <span className="text-[10px] text-emerald-400 mt-1 flex items-center">
               <Check className="w-3 h-3 mr-0.5" /> High Accuracy
@@ -435,74 +478,78 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
             <span className="text-[10px] text-slate-400 mt-1">Live Hardware Sync</span>
           </div>
 
-          {/* Camera Status */}
-          <div 
-            onClick={() => requestRealCamera('front')}
-            className="bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 rounded-xl p-3 cursor-pointer transition flex flex-col justify-between"
-          >
+          {/* Live Camera Stream Status */}
+          <div className="bg-slate-800/60 border border-slate-700/60 rounded-xl p-3 flex flex-col justify-between">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-[11px] font-semibold text-slate-400 uppercase">Camera</span>
-              <Camera className="w-4 h-4 text-indigo-400" />
+              <span className="text-[11px] font-semibold text-slate-400 uppercase">Live Camera</span>
+              <Video className="w-4 h-4 text-indigo-400" />
             </div>
             <div className="text-xs font-bold text-slate-200">
-              {isCapturingCamera ? 'Capturing...' : 'Front & Rear Ready'}
+              {isCameraStreamingLive ? (
+                <span className="text-red-400 flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
+                  Streaming Live
+                </span>
+              ) : 'Standby / Ready'}
             </div>
-            <span className="text-[10px] text-indigo-400 mt-1">Tap for live test</span>
+            <span className="text-[10px] text-indigo-300 mt-1">Front & Rear HD</span>
           </div>
 
-          {/* Microphone Status */}
-          <div 
-            onClick={isRecordingAudio ? stopRealAudioRecording : startRealAudioRecording}
-            className={`border rounded-xl p-3 cursor-pointer transition flex flex-col justify-between ${
-              isRecordingAudio 
-                ? 'bg-rose-950/60 border-rose-500/50 text-rose-300' 
-                : 'bg-slate-800/60 hover:bg-slate-800 border-slate-700/60'
-            }`}
-          >
+          {/* Live Mic Voice Status */}
+          <div className="bg-slate-800/60 border border-slate-700/60 rounded-xl p-3 flex flex-col justify-between">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-[11px] font-semibold text-slate-400 uppercase">Microphone</span>
-              <Mic className={`w-4 h-4 ${isRecordingAudio ? 'text-rose-400 animate-pulse' : 'text-amber-400'}`} />
+              <span className="text-[11px] font-semibold text-slate-400 uppercase">Live Voice</span>
+              <Mic className="w-4 h-4 text-purple-400" />
             </div>
             <div className="text-xs font-bold text-slate-200">
-              {isRecordingAudio ? `Streaming (${recordingSeconds}s)` : 'Ambient Audio'}
+              {isAudioStreamingLive ? (
+                <span className="text-emerald-400 flex items-center gap-1">
+                  <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
+                  Streaming Voice
+                </span>
+              ) : 'Standby / Ready'}
             </div>
-            <span className={`text-[10px] mt-1 ${isRecordingAudio ? 'text-rose-400' : 'text-amber-400'}`}>
-              {isRecordingAudio ? 'Recording active' : 'Tap to record clip'}
-            </span>
+            <span className="text-[10px] text-purple-300 mt-1">Real-time Audio</span>
           </div>
 
         </div>
 
-        {/* SOS Emergency Alert Button */}
+        {/* Emergency SOS Panic Button */}
         <div className="pt-2">
           <button
             onClick={handleSOS}
-            className={`w-full py-4 rounded-2xl font-bold text-base flex items-center justify-center space-x-2 transition shadow-lg ${
+            disabled={sosAlertSent}
+            className={`w-full py-4 rounded-2xl font-black text-sm uppercase tracking-wider flex items-center justify-center space-x-2 shadow-xl transition-all ${
               sosAlertSent
-                ? 'bg-emerald-600 text-white animate-bounce'
-                : 'bg-gradient-to-r from-rose-600 to-red-600 hover:from-rose-500 hover:to-red-500 text-white shadow-rose-900/40'
+                ? 'bg-emerald-600 text-white'
+                : 'bg-gradient-to-r from-red-600 via-rose-600 to-red-700 hover:from-red-500 hover:to-rose-600 text-white shadow-red-900/50 active:scale-98'
             }`}
           >
             <ShieldAlert className="w-5 h-5" />
-            <span>{sosAlertSent ? '✓ SOS Emergency Dispatched!' : '🚨 Send Instant SOS Alert'}</span>
+            <span>{sosAlertSent ? '🚨 SOS Alert Dispatched!' : '🚨 Instant SOS Alert'}</span>
           </button>
         </div>
 
       </div>
 
-      {/* Screen Lock Real Fullscreen Overlay */}
+      {/* Screen Locked Fullscreen Overlay */}
       {deviceState.isLocked && (
-        <div className="fixed inset-0 z-50 bg-slate-950/95 backdrop-blur-md flex flex-col items-center justify-center p-6 text-center">
-          <div className="w-20 h-20 rounded-full bg-rose-500/20 border-2 border-rose-500/50 flex items-center justify-center text-rose-500 mb-6 animate-pulse">
+        <div className="absolute inset-0 bg-slate-950/95 backdrop-blur-xl flex flex-col items-center justify-center p-6 text-center z-50 animate-in fade-in zoom-in-95 duration-300">
+          <div className="w-20 h-20 rounded-full bg-red-500/20 border-2 border-red-500 flex items-center justify-center text-red-500 mb-6 animate-pulse">
             <Lock className="w-10 h-10" />
           </div>
-          <h2 className="text-2xl font-black text-white mb-2">Screen Access Locked</h2>
-          <p className="text-sm text-slate-300 max-w-xs mb-8 bg-slate-900 border border-slate-800 rounded-xl p-4">
-            {deviceState.customLockMessage || "Parental override lock is active. Please contact your parents."}
-          </p>
-          <div className="text-xs text-slate-500">
-            Guardian Shield Safety System
+          <h2 className="text-2xl font-black text-white tracking-tight mb-2">Device Screen Locked</h2>
+          <p className="text-sm text-red-400 font-semibold mb-4">Access restricted by Parent</p>
+          <div className="bg-slate-900 border border-slate-800 rounded-2xl p-4 max-w-xs text-xs text-slate-300 mb-6">
+            "{deviceState.customLockMessage || 'Screen time limit reached or restricted by Guardian.'}"
           </div>
+          <button
+            onClick={handleSOS}
+            className="px-6 py-2.5 bg-red-600 hover:bg-red-500 text-white font-bold text-xs rounded-xl shadow-lg shadow-red-950 flex items-center space-x-2"
+          >
+            <ShieldAlert className="w-4 h-4" />
+            <span>Emergency SOS</span>
+          </button>
         </div>
       )}
 
