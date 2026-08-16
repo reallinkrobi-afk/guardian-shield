@@ -104,12 +104,17 @@ export const LocationMapView: React.FC<LocationMapViewProps> = ({
     });
 
     if (markerRef.current) {
-      markerRef.current.setLatLng([location.lat, location.lng]);
+      markerRef.current.setLatLng([location.lat || 23.8103, location.lng || 90.4125]);
     } else {
-      markerRef.current = L.marker([location.lat, location.lng], { icon: childIcon }).addTo(map);
+      markerRef.current = L.marker([location.lat || 23.8103, location.lng || 90.4125], { icon: childIcon }).addTo(map);
     }
 
-    markerRef.current.bindPopup(`<b>${childName} is here</b><br>${location.address}`).openPopup();
+    const isWaiting = !location.lat || (location.lat === 23.8103 && location.address?.includes("Waiting"));
+    if (isWaiting) {
+      markerRef.current.bindPopup(`<b>Waiting for Child Phone Connection</b><br>Install GuardianShield.apk & pair to view live GPS.`).openPopup();
+    } else {
+      markerRef.current.bindPopup(`<b>${childName} is here</b><br>${location.address}`).openPopup();
+    }
 
     // Render Geofence Circles
     circlesRef.current.forEach(c => c.remove());
