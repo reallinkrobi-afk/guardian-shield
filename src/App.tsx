@@ -73,34 +73,31 @@ export default function App() {
     }
   };
 
-  // Initialize device-unique Pairing Code
-  useEffect(() => {
-    let savedCode = localStorage.getItem('child_pairing_code');
-    let savedDevId = localStorage.getItem('child_device_id');
+    if (isCapacitor) {
+      if (!savedCode) {
+        const codePart1 = Math.floor(100 + Math.random() * 900);
+        const codePart2 = Math.floor(100 + Math.random() * 900);
+        savedCode = `${codePart1}-${codePart2}`;
+        localStorage.setItem('child_pairing_code', savedCode);
+      }
 
-    if (!savedCode) {
-      const codePart1 = Math.floor(100 + Math.random() * 900);
-      const codePart2 = Math.floor(100 + Math.random() * 900);
-      savedCode = `${codePart1}-${codePart2}`;
-      localStorage.setItem('child_pairing_code', savedCode);
+      if (!savedDevId) {
+        savedDevId = `DEV-CHILD-${Math.floor(1000 + Math.random() * 9000)}`;
+        localStorage.setItem('child_device_id', savedDevId);
+      }
+
+      setDeviceState(prev => ({
+        ...prev,
+        pairingCode: savedCode,
+        deviceId: savedDevId
+      }));
     }
-
-    if (!savedDevId) {
-      savedDevId = `DEV-CHILD-${Math.floor(1000 + Math.random() * 9000)}`;
-      localStorage.setItem('child_device_id', savedDevId);
-    }
-
-    setDeviceState(prev => ({
-      ...prev,
-      pairingCode: savedCode,
-      deviceId: savedDevId
-    }));
 
     fetchState();
     // Poll every 2.5 seconds for live cross-device sync
     const interval = setInterval(fetchState, 2500);
     return () => clearInterval(interval);
-  }, []);
+  }, [isCapacitor]);
 
   // Remote command handlers with local fallback
   const sendCommand = async (command: string, payload?: any) => {
@@ -346,6 +343,21 @@ export default function App() {
     }));
   };
 
+  const handleResetDevice = async () => {
+    try {
+      const res = await fetch(getApiUrl('/api/device/reset'), { method: 'POST' });
+      if (res.ok) {
+        const data = await res.json();
+        if (data.state) {
+          setDeviceState(data.state);
+        }
+      }
+    } catch (e) {
+      setDeviceState(DEFAULT_DEVICE_STATE);
+    }
+    localStorage.removeItem('parent_paired_code');
+  };
+
   const handleRunAIScan = async (content: string, app: string, imageBase64?: string) => {
     try {
       const res = await fetch(getApiUrl('/api/gemini/safety-scan'), {
@@ -560,6 +572,7 @@ export default function App() {
         onClose={() => setShowPairingModal(false)}
         deviceState={deviceState}
         onPairDevice={handlePairDevice}
+        onResetDevice={handleResetDevice}
       />
 
     </div>
