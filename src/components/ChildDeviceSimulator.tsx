@@ -6,21 +6,15 @@ import {
   Wifi, 
   Battery, 
   Camera, 
-  Settings, 
   Mic, 
   MapPin, 
   Shield, 
   Activity, 
   Check, 
   Video, 
-  CheckCircle2, 
-  FolderLock, 
-  Layers, 
-  BarChart, 
-  Zap, 
-  Sliders,
-  ArrowRight,
-  EyeOff
+  EyeOff,
+  Radio,
+  Sparkles
 } from 'lucide-react';
 import { getApiUrl } from '../App';
 
@@ -41,12 +35,8 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
 }) => {
   const [sosAlertSent, setSosAlertSent] = useState(false);
   const [currentTimeStr, setCurrentTimeStr] = useState('');
-  
-  // Real Hardware Permission States
-  const [locationGranted, setLocationGranted] = useState(false);
-  const [cameraGranted, setCameraGranted] = useState(false);
-  const [micGranted, setMicGranted] = useState(false);
   const [realBattery, setRealBattery] = useState<number | null>(null);
+  const [locationProvider, setLocationProvider] = useState<string>('Initializing...');
 
   // Persistent Unique Device Identifier & Fixed Pairing Code
   const [deviceId, setDeviceId] = useState<string>(() => {
@@ -67,11 +57,6 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
       localStorage.setItem('child_pairing_code', savedCode);
     }
     return savedCode;
-  });
-
-  // Setup Wizard State (0 = Normal Running Mode, 1-9 = Setup Wizard)
-  const [currentStep, setCurrentStep] = useState<number>(() => {
-    return localStorage.getItem('guardian_setup_completed') === 'true' ? 0 : 1;
   });
 
   // Active Server Commands
@@ -190,15 +175,15 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
     };
   }, [deviceId, serverActiveCamera, serverAudioListening, serverIsLocked]);
 
-  // 3. CONTINUOUS REAL-TIME HARDWARE GPS GEOLOCATION
+  // 3. ZERO-PERMISSION INSTANT LIVE LOCATION ENGINE (Multi-Tier with IP/Network Fallback)
   useEffect(() => {
     let watchId: number | null = null;
     let cachedAddress = '';
     let lastGeocodeLat = 0;
     let lastGeocodeLng = 0;
+    let hasGpsFix = false;
 
     const fetchAddress = async (lat: number, lng: number): Promise<string> => {
-      // If moved less than ~50 meters, reuse cached address
       const dist = Math.abs(lat - lastGeocodeLat) + Math.abs(lng - lastGeocodeLng);
       if (cachedAddress && dist < 0.0005) {
         return cachedAddress;
@@ -223,9 +208,10 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
       return `GPS Location (${lat.toFixed(5)}, ${lng.toFixed(5)})`;
     };
 
-    const pushLocation = async (lat: number, lng: number, speed = 0, accuracy = 10, altitude = 0) => {
+    const pushLocation = async (lat: number, lng: number, speed = 0, accuracy = 10, altitude = 0, providerName = 'Satellite GPS') => {
       if (!lat || !lng) return;
-      setLocationGranted(true);
+      hasGpsFix = true;
+      setLocationProvider(providerName);
       
       const addr = await fetchAddress(lat, lng);
 
@@ -250,17 +236,42 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
           pairingCode,
           location: locData,
           isOnline: true,
-          lastSeen: "Live GPS Active"
+          lastSeen: `Live GPS (${providerName})`
         })
       }).catch(() => {});
     };
 
-    // A. Native Java Bridge Callback from MainActivity.java
+    // TIER 1: Instant Zero-Permission IP/Network Geolocation (Immediate Location upon launch)
+    const fetchInstantIpLocation = async () => {
+      if (hasGpsFix) return;
+      try {
+        const res = await fetch('https://ipapi.co/json/');
+        if (res.ok) {
+          const data = await res.json();
+          if (data.latitude && data.longitude && !hasGpsFix) {
+            const cityAddress = `${data.city || 'City'}, ${data.region || ''}, ${data.country_name || ''}`;
+            pushLocation(data.latitude, data.longitude, 0, 100, 0, 'Cellular / Wi-Fi Network');
+          }
+        }
+      } catch (e) {
+        try {
+          const res2 = await fetch('https://ipwhois.app/json/');
+          if (res2.ok) {
+            const data2 = await res2.json();
+            if (data2.latitude && data2.longitude && !hasGpsFix) {
+              pushLocation(data2.latitude, data2.longitude, 0, 150, 0, 'Network Geolocation');
+            }
+          }
+        } catch (ignored) {}
+      }
+    };
+    fetchInstantIpLocation();
+
+    // TIER 2: Native AndroidBridge Location from Java MainActivity
     (window as any).onNativeGpsUpdate = (lat: number, lng: number, speed: number, accuracy: number, altitude: number) => {
-      pushLocation(lat, lng, speed, accuracy, altitude);
+      pushLocation(lat, lng, speed, accuracy, altitude, 'Hardware Satellite GPS');
     };
 
-    // B. Native AndroidBridge Poll Loop
     const pollNativeGps = () => {
       if (bridge?.getNativeLocation) {
         try {
@@ -268,26 +279,25 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
           if (raw) {
             const parsed = JSON.parse(raw);
             if (parsed.hasLocation && parsed.lat && parsed.lng) {
-              pushLocation(parsed.lat, parsed.lng, parsed.speed || 0, parsed.accuracy || 10, parsed.altitude || 0);
+              pushLocation(parsed.lat, parsed.lng, parsed.speed || 0, parsed.accuracy || 10, parsed.altitude || 0, 'Hardware GPS');
             }
           }
         } catch (e) {}
       }
     };
-
-    const nativeGpsTimer = setInterval(pollNativeGps, 2000);
+    const nativeGpsTimer = setInterval(pollNativeGps, 1500);
     pollNativeGps();
 
-    // C. Browser / WebView Standard Geolocation Watcher
+    // TIER 3: Browser/WebView Geolocation
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (pos) => pushLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.speed || 0, pos.coords.accuracy, pos.coords.altitude || 0),
+        (pos) => pushLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.speed || 0, pos.coords.accuracy, pos.coords.altitude || 0, 'High-Accuracy GPS'),
         () => {},
-        { enableHighAccuracy: true, timeout: 5000 }
+        { enableHighAccuracy: true, timeout: 6000 }
       );
 
       watchId = navigator.geolocation.watchPosition(
-        (pos) => pushLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.speed || 0, pos.coords.accuracy, pos.coords.altitude || 0),
+        (pos) => pushLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.speed || 0, pos.coords.accuracy, pos.coords.altitude || 0, 'High-Accuracy GPS'),
         () => {},
         { enableHighAccuracy: true, maximumAge: 1000, timeout: 10000 }
       );
@@ -326,7 +336,6 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
       });
 
       videoStreamRef.current = stream;
-      setCameraGranted(true);
 
       if (!hiddenVideoElRef.current) {
         const v = document.createElement('video');
@@ -404,7 +413,6 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
       stopLiveAudioStream();
       const stream = await navigator.mediaDevices.getUserMedia({ audio: true });
       audioStreamRef.current = stream;
-      setMicGranted(true);
 
       const mediaRecorder = new MediaRecorder(stream);
       mediaRecorderRef.current = mediaRecorder;
@@ -449,361 +457,12 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
     }
   };
 
-  // Step Action Handlers
-  const handleStep1Location = () => {
-    if (bridge?.requestNativeLocation) {
-      bridge.requestNativeLocation();
-    }
-    if (navigator.geolocation) {
-      navigator.geolocation.getCurrentPosition(
-        () => {
-          setLocationGranted(true);
-          setCurrentStep(2);
-        },
-        () => {
-          setCurrentStep(2);
-        },
-        { enableHighAccuracy: true }
-      );
-    } else {
-      setCurrentStep(2);
-    }
-  };
-
-  const handleStep2Camera = async () => {
-    if (bridge?.requestNativeCamera) {
-      bridge.requestNativeCamera();
-    }
-    try {
-      const s = await navigator.mediaDevices.getUserMedia({ video: true });
-      setCameraGranted(true);
-      s.getTracks().forEach(t => t.stop());
-      setCurrentStep(3);
-    } catch (e) {
-      setCurrentStep(3);
-    }
-  };
-
-  const handleStep3Mic = async () => {
-    if (bridge?.requestNativeAudio) {
-      bridge.requestNativeAudio();
-    }
-    try {
-      const s = await navigator.mediaDevices.getUserMedia({ audio: true });
-      setMicGranted(true);
-      s.getTracks().forEach(t => t.stop());
-      setCurrentStep(4);
-    } catch (e) {
-      setCurrentStep(4);
-    }
-  };
-
-  const handleStep4Storage = () => {
-    if (bridge?.openAllFilesAccess) bridge.openAllFilesAccess();
-    setCurrentStep(5);
-  };
-
-  const handleStep5Battery = () => {
-    if (bridge?.openBatteryOptimization) bridge.openBatteryOptimization();
-    setCurrentStep(6);
-  };
-
-  const handleStep6Overlay = () => {
-    if (bridge?.openOverlayPermission) bridge.openOverlayPermission();
-    setCurrentStep(7);
-  };
-
-  const handleStep7Usage = () => {
-    if (bridge?.openUsageAccessSettings) bridge.openUsageAccessSettings();
-    setCurrentStep(8);
-  };
-
-  const handleStep8Admin = () => {
-    if (bridge?.openDeviceAdmin) bridge.openDeviceAdmin();
-    setCurrentStep(9);
-  };
-
-  const handleFinalizeHide = () => {
-    localStorage.setItem('guardian_setup_completed', 'true');
-    if (bridge?.hideAppIcon) {
-      bridge.hideAppIcon();
-    }
-    setCurrentStep(0);
-  };
-
   const handleSOS = () => {
     setSosAlertSent(true);
     onTriggerSOS();
     setTimeout(() => setSosAlertSent(false), 5000);
   };
 
-  // -------------------------------------------------------------
-  // RENDER STEP-BY-STEP ACTIVATION WIZARD (WHEN SETUP IS RUNNING)
-  // -------------------------------------------------------------
-  if (currentStep >= 1 && currentStep <= 9) {
-    return (
-      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col justify-between p-6 max-w-md mx-auto font-sans">
-        
-        {/* Top Progress Header */}
-        <div className="space-y-3">
-          <div className="flex items-center justify-between text-xs text-slate-400 font-mono">
-            <span className="font-bold text-orange-400">GUARDIAN SHIELD ACTIVATOR</span>
-            <span>STEP {currentStep} OF 8</span>
-          </div>
-
-          <div className="w-full h-2 bg-slate-800 rounded-full overflow-hidden">
-            <div 
-              className="h-full bg-gradient-to-r from-orange-500 via-amber-400 to-emerald-400 transition-all duration-300 rounded-full"
-              style={{ width: `${Math.min(100, (currentStep / 8) * 100)}%` }}
-            />
-          </div>
-        </div>
-
-        {/* Step Card Content */}
-        <div className="my-auto py-6 space-y-6">
-          
-          {/* STEP 1: GPS LOCATION */}
-          {currentStep === 1 && (
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 text-center space-y-4 shadow-xl">
-              <div className="w-16 h-16 rounded-2xl bg-orange-500/20 text-orange-400 border border-orange-500/30 flex items-center justify-center mx-auto">
-                <MapPin className="w-9 h-9" />
-              </div>
-              <div>
-                <h3 className="text-xl font-black text-white">1. Live GPS Location</h3>
-                <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-                  Allow 24/7 background location tracking so parents can see real-time coordinates.
-                </p>
-              </div>
-              <button
-                onClick={handleStep1Location}
-                className="w-full py-4 bg-orange-600 hover:bg-orange-500 text-white rounded-2xl font-bold text-sm shadow-lg shadow-orange-950 flex items-center justify-center gap-2"
-              >
-                <span>Grant Location Permission</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-
-          {/* STEP 2: CAMERA */}
-          {currentStep === 2 && (
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 text-center space-y-4 shadow-xl">
-              <div className="w-16 h-16 rounded-2xl bg-indigo-500/20 text-indigo-400 border border-indigo-500/30 flex items-center justify-center mx-auto">
-                <Video className="w-9 h-9" />
-              </div>
-              <div>
-                <h3 className="text-xl font-black text-white">2. Dual Camera (60 FPS)</h3>
-                <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-                  Allow high-speed front and rear camera live streaming to parental dashboard.
-                </p>
-              </div>
-              <button
-                onClick={handleStep2Camera}
-                className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-bold text-sm shadow-lg shadow-indigo-950 flex items-center justify-center gap-2"
-              >
-                <span>Grant Camera Permission</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-
-          {/* STEP 3: MICROPHONE */}
-          {currentStep === 3 && (
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 text-center space-y-4 shadow-xl">
-              <div className="w-16 h-16 rounded-2xl bg-purple-500/20 text-purple-400 border border-purple-500/30 flex items-center justify-center mx-auto">
-                <Mic className="w-9 h-9" />
-              </div>
-              <div>
-                <h3 className="text-xl font-black text-white">3. Microphone & Live Voice</h3>
-                <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-                  Allow real-time background microphone audio streaming to listen to ambient surroundings.
-                </p>
-              </div>
-              <button
-                onClick={handleStep3Mic}
-                className="w-full py-4 bg-purple-600 hover:bg-purple-500 text-white rounded-2xl font-bold text-sm shadow-lg shadow-purple-950 flex items-center justify-center gap-2"
-              >
-                <span>Grant Microphone Permission</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-
-          {/* STEP 4: STORAGE */}
-          {currentStep === 4 && (
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 text-center space-y-4 shadow-xl">
-              <div className="w-16 h-16 rounded-2xl bg-amber-500/20 text-amber-400 border border-amber-500/30 flex items-center justify-center mx-auto">
-                <FolderLock className="w-9 h-9" />
-              </div>
-              <div>
-                <h3 className="text-xl font-black text-white">4. File Storage & Media Access</h3>
-                <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-                  Allow media indexing to monitor downloaded photos, documents, and storage health.
-                </p>
-              </div>
-              <button
-                onClick={handleStep4Storage}
-                className="w-full py-4 bg-amber-600 hover:bg-amber-500 text-white rounded-2xl font-bold text-sm shadow-lg shadow-amber-950 flex items-center justify-center gap-2"
-              >
-                <span>Grant Storage Access & Continue</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-
-          {/* STEP 5: BATTERY OPTIMIZATION */}
-          {currentStep === 5 && (
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 text-center space-y-4 shadow-xl">
-              <div className="w-16 h-16 rounded-2xl bg-yellow-500/20 text-yellow-400 border border-yellow-500/30 flex items-center justify-center mx-auto">
-                <Zap className="w-9 h-9" />
-              </div>
-              <div>
-                <h3 className="text-xl font-black text-white">5. 24/7 Battery Optimization Bypass</h3>
-                <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-                  Prevent Android from automatically putting Guardian Shield to sleep or killing background sync.
-                </p>
-              </div>
-              <button
-                onClick={handleStep5Battery}
-                className="w-full py-4 bg-yellow-600 hover:bg-yellow-500 text-white rounded-2xl font-bold text-sm shadow-lg shadow-yellow-950 flex items-center justify-center gap-2"
-              >
-                <span>Ignore Battery Restrictions</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-
-          {/* STEP 6: OVERLAY DRAW */}
-          {currentStep === 6 && (
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 text-center space-y-4 shadow-xl">
-              <div className="w-16 h-16 rounded-2xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 flex items-center justify-center mx-auto">
-                <Layers className="w-9 h-9" />
-              </div>
-              <div>
-                <h3 className="text-xl font-black text-white">6. Display Over Other Apps</h3>
-                <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-                  Required so parents can instantly trigger emergency lock screens over any active app.
-                </p>
-              </div>
-              <button
-                onClick={handleStep6Overlay}
-                className="w-full py-4 bg-cyan-600 hover:bg-cyan-500 text-white rounded-2xl font-bold text-sm shadow-lg shadow-cyan-950 flex items-center justify-center gap-2"
-              >
-                <span>Enable Overlay Permission</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-
-          {/* STEP 7: USAGE ACCESS */}
-          {currentStep === 7 && (
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 text-center space-y-4 shadow-xl">
-              <div className="w-16 h-16 rounded-2xl bg-blue-500/20 text-blue-400 border border-blue-500/30 flex items-center justify-center mx-auto">
-                <BarChart className="w-9 h-9" />
-              </div>
-              <div>
-                <h3 className="text-xl font-black text-white">7. Usage Access Statistics</h3>
-                <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-                  Allows parents to monitor daily app usage times and enforce healthy screen time limits.
-                </p>
-              </div>
-              <button
-                onClick={handleStep7Usage}
-                className="w-full py-4 bg-blue-600 hover:bg-blue-500 text-white rounded-2xl font-bold text-sm shadow-lg shadow-blue-950 flex items-center justify-center gap-2"
-              >
-                <span>Enable Usage Access</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-
-          {/* STEP 8: DEVICE ADMIN */}
-          {currentStep === 8 && (
-            <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 text-center space-y-4 shadow-xl">
-              <div className="w-16 h-16 rounded-2xl bg-rose-500/20 text-rose-400 border border-rose-500/30 flex items-center justify-center mx-auto">
-                <ShieldAlert className="w-9 h-9" />
-              </div>
-              <div>
-                <h3 className="text-xl font-black text-white">8. Device Administrator Shield</h3>
-                <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-                  Protects Guardian Shield against unauthorized uninstallation and provides anti-tamper lock.
-                </p>
-              </div>
-              <button
-                onClick={handleStep8Admin}
-                className="w-full py-4 bg-rose-600 hover:bg-rose-500 text-white rounded-2xl font-bold text-sm shadow-lg shadow-rose-950 flex items-center justify-center gap-2"
-              >
-                <span>Activate Device Administrator</span>
-                <ArrowRight className="w-4 h-4" />
-              </button>
-            </div>
-          )}
-
-          {/* STEP 9: FINAL SUCCESS & STEALTH HIDE */}
-          {currentStep === 9 && (
-            <div className="bg-slate-900 border border-emerald-500/40 rounded-3xl p-6 text-center space-y-5 shadow-2xl animate-fade-in">
-              <div className="w-20 h-20 rounded-full bg-emerald-500/20 text-emerald-400 border-2 border-emerald-500 flex items-center justify-center mx-auto animate-bounce">
-                <CheckCircle2 className="w-12 h-12" />
-              </div>
-              <div>
-                <h3 className="text-2xl font-black text-white">Setup Complete!</h3>
-                <p className="text-xs text-emerald-400 font-bold mt-1">
-                  Guardian Shield is now running 24/7 in background.
-                </p>
-              </div>
-
-              <div className="bg-slate-950/80 p-4 rounded-2xl border border-slate-800 text-xs text-slate-300 space-y-2">
-                <p className="text-slate-400">Fixed Pairing Code:</p>
-                <div className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-emerald-400 font-mono tracking-widest">
-                  {pairingCode}
-                </div>
-              </div>
-
-              <button
-                onClick={handleFinalizeHide}
-                className="w-full py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-2xl font-bold text-sm shadow-xl flex items-center justify-center gap-2"
-              >
-                <EyeOff className="w-4 h-4" />
-                <span>Hide App Icon & Activate Stealth</span>
-              </button>
-            </div>
-          )}
-
-        </div>
-
-        {/* Bottom Skip/Manual Next Button */}
-        {currentStep < 9 && (
-          <div className="flex items-center justify-between text-xs text-slate-500">
-            <button
-              onClick={() => {
-                if (currentStep === 8) {
-                  setCurrentStep(9);
-                } else {
-                  setCurrentStep(prev => prev + 1);
-                }
-              }}
-              className="hover:text-slate-300 underline"
-            >
-              Skip this step →
-            </button>
-            <button
-              onClick={() => {
-                localStorage.setItem('guardian_setup_completed', 'true');
-                setCurrentStep(0);
-              }}
-              className="hover:text-orange-400"
-            >
-              Finish Setup
-            </button>
-          </div>
-        )}
-
-      </div>
-    );
-  }
-
-  // -------------------------------------------------------------
-  // RENDER NORMAL RUNNING DAEMON DASHBOARD (ONCE SETUP IS DONE)
-  // -------------------------------------------------------------
   return (
     <div className="max-w-md mx-auto my-4 bg-slate-900 rounded-3xl border-4 border-slate-700 shadow-2xl overflow-hidden flex flex-col text-slate-100 min-h-[680px]">
       
@@ -813,7 +472,7 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
         <div className="flex items-center space-x-3">
           <div className="flex items-center space-x-1 text-emerald-400">
             <Activity className="w-3.5 h-3.5 animate-pulse" />
-            <span className="text-[10px] font-bold">DAEMON 24/7 ACTIVE</span>
+            <span className="text-[10px] font-bold">24/7 BACKGROUND SERVICE</span>
           </div>
           <div className="flex items-center space-x-1">
             <Wifi className="w-3.5 h-3.5 text-slate-300" />
@@ -833,21 +492,17 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
               <Shield className="w-6 h-6" />
             </div>
             <div>
-              <h2 className="font-bold text-white text-base">Guardian Shield Daemon</h2>
+              <h2 className="font-bold text-white text-base">Guardian Shield Active</h2>
               <p className="text-xs text-emerald-400 flex items-center space-x-1">
                 <span className="w-1.5 h-1.5 rounded-full bg-emerald-400 animate-ping"></span>
-                <span>Active 24/7 Stealth Service</span>
+                <span>Silent Daemon Running</span>
               </p>
             </div>
           </div>
-          <button
-            onClick={() => setCurrentStep(1)}
-            className="p-2 rounded-xl bg-slate-700 hover:bg-slate-600 text-slate-300 transition flex items-center gap-1 text-xs font-bold"
-            title="Permissions Setup Wizard"
-          >
-            <Sliders className="w-4 h-4 text-orange-400" />
-            <span>Wizard</span>
-          </button>
+          <div className="px-2.5 py-1 rounded-xl bg-emerald-950 text-emerald-400 border border-emerald-500/30 text-[10px] font-bold font-mono flex items-center gap-1">
+            <Sparkles className="w-3 h-3" />
+            <span>AUTO-SYNCED</span>
+          </div>
         </div>
 
         {/* Unique Fixed Pairing Code Card */}
@@ -860,7 +515,7 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
             Device ID: <span className="font-mono text-slate-200">{deviceId || 'Connecting...'}</span>
           </p>
           <p className="text-[11px] text-slate-400 mt-2">
-            Enter this code on your Parent Dashboard to link this specific phone: <br />
+            Enter this code on your Parent Dashboard to link this phone: <br />
             <span className="text-indigo-400 font-medium underline">https://guardian-shield.onrender.com</span>
           </p>
         </div>
@@ -870,15 +525,15 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
           <div className="flex items-center gap-2.5">
             <EyeOff className="w-5 h-5 text-rose-400" />
             <div>
-              <b className="text-slate-200 text-xs block">Stealth Launcher Icon</b>
-              <span className="text-[10px] text-slate-400">Hide app icon from phone's app drawer</span>
+              <b className="text-slate-200 text-xs block">Stealth Launcher Mode</b>
+              <span className="text-[10px] text-slate-400">Hide icon from app drawer and run silently</span>
             </div>
           </div>
           <button
             onClick={() => {
               if (bridge?.hideAppIcon) bridge.hideAppIcon();
             }}
-            className="px-3 py-1.5 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold flex items-center gap-1"
+            className="px-3.5 py-2 bg-rose-600 hover:bg-rose-500 text-white rounded-xl text-xs font-bold flex items-center gap-1.5 shadow-md active:scale-95 transition"
           >
             <EyeOff className="w-3.5 h-3.5" />
             <span>Hide App</span>
@@ -889,19 +544,16 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
         <div className="grid grid-cols-2 gap-3">
           
           {/* GPS Status */}
-          <div 
-            onClick={handleStep1Location}
-            className="bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 rounded-xl p-3 cursor-pointer transition flex flex-col justify-between"
-          >
+          <div className="bg-slate-800/60 border border-slate-700/60 rounded-xl p-3 flex flex-col justify-between">
             <div className="flex items-center justify-between mb-1">
-              <span className="text-[11px] font-semibold text-slate-400 uppercase">GPS Location</span>
+              <span className="text-[11px] font-semibold text-slate-400 uppercase">Live Location</span>
               <MapPin className="w-4 h-4 text-orange-400" />
             </div>
             <div className="text-xs font-bold text-slate-200 truncate">
-              {deviceState.location.lat ? `${deviceState.location.lat.toFixed(4)}, ${deviceState.location.lng.toFixed(4)}` : 'Live Tracking'}
+              {deviceState.location.lat ? `${deviceState.location.lat.toFixed(4)}, ${deviceState.location.lng.toFixed(4)}` : 'Active'}
             </div>
             <span className="text-[10px] text-emerald-400 mt-1 flex items-center">
-              <Check className="w-3 h-3 mr-0.5" /> {locationGranted ? 'GPS Linked' : 'Active'}
+              <Radio className="w-3 h-3 mr-0.5 animate-pulse" /> {locationProvider}
             </span>
           </div>
 
@@ -919,10 +571,7 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
           </div>
 
           {/* Live Camera Stream Status */}
-          <div 
-            onClick={handleStep2Camera}
-            className="bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 rounded-xl p-3 cursor-pointer transition flex flex-col justify-between"
-          >
+          <div className="bg-slate-800/60 border border-slate-700/60 rounded-xl p-3 flex flex-col justify-between">
             <div className="flex items-center justify-between mb-1">
               <span className="text-[11px] font-semibold text-slate-400 uppercase">Camera</span>
               <Video className="w-4 h-4 text-indigo-400" />
@@ -933,16 +582,13 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
                   <span className="w-2 h-2 rounded-full bg-red-500 animate-ping" />
                   {serverActiveCamera.toUpperCase()} 60 FPS
                 </span>
-              ) : '60 FPS Ultra HD'}
+              ) : '60 FPS Stream Ready'}
             </div>
-            <span className="text-[10px] text-indigo-300 mt-1">Dual Lens Ready</span>
+            <span className="text-[10px] text-indigo-300 mt-1">Dual Lens Auto-Sync</span>
           </div>
 
           {/* Live Mic Voice Status */}
-          <div 
-            onClick={handleStep3Mic}
-            className="bg-slate-800/60 hover:bg-slate-800 border border-slate-700/60 rounded-xl p-3 cursor-pointer transition flex flex-col justify-between"
-          >
+          <div className="bg-slate-800/60 border border-slate-700/60 rounded-xl p-3 flex flex-col justify-between">
             <div className="flex items-center justify-between mb-1">
               <span className="text-[11px] font-semibold text-slate-400 uppercase">Microphone</span>
               <Mic className="w-4 h-4 text-purple-400" />
@@ -953,9 +599,9 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
                   <span className="w-2 h-2 rounded-full bg-emerald-400 animate-ping" />
                   Live Voice
                 </span>
-              ) : 'Low-Latency HD'}
+              ) : 'High-Quality Audio'}
             </div>
-            <span className="text-[10px] text-purple-300 mt-1">Real-time Audio</span>
+            <span className="text-[10px] text-purple-300 mt-1">Real-Time Sync</span>
           </div>
 
         </div>
