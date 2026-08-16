@@ -51,7 +51,7 @@ export const CameraStreamView: React.FC<CameraStreamViewProps> = ({
     }
   };
 
-  // Fast Polling Stream Loop for real-time live camera feed
+  // Ultra-Fast Stream Loop for 30-60 FPS live camera feed
   useEffect(() => {
     if (activeCamera === 'off') {
       setLiveFrame(null);
@@ -60,7 +60,11 @@ export const CameraStreamView: React.FC<CameraStreamViewProps> = ({
     }
 
     let isSubscribed = true;
+    let isFetching = false;
+
     const pollInterval = setInterval(async () => {
+      if (isFetching) return;
+      isFetching = true;
       try {
         const query = deviceId ? `?deviceId=${deviceId}` : '';
         const res = await fetch(getApiUrl(`/api/device/stream-frame${query}`));
@@ -77,8 +81,10 @@ export const CameraStreamView: React.FC<CameraStreamViewProps> = ({
             }
           }
         }
-      } catch (err) {}
-    }, 250);
+      } catch (err) {} finally {
+        isFetching = false;
+      }
+    }, 40);
 
     return () => {
       isSubscribed = false;
