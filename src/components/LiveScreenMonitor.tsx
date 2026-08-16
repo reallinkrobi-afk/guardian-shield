@@ -1,4 +1,4 @@
-import React, { useState } from 'react';
+import React, { useState, useEffect } from 'react';
 import { AISafetyReport, RiskLevel } from '../types';
 import { 
   Monitor, 
@@ -9,12 +9,11 @@ import {
   AlertTriangle, 
   CheckCircle2, 
   RefreshCw, 
-  Sliders, 
   Globe,
   Smartphone,
-  Eye,
   ShieldAlert
 } from 'lucide-react';
+import { getApiUrl } from '../App';
 
 interface LiveScreenMonitorProps {
   currentApp: string;
@@ -27,6 +26,7 @@ interface LiveScreenMonitorProps {
   onUnlockScreen: () => void;
   onRunAIScan: (content: string, app: string, imageBase64?: string) => Promise<void>;
   childName: string;
+  deviceId?: string;
 }
 
 export const LiveScreenMonitor: React.FC<LiveScreenMonitorProps> = ({
@@ -39,15 +39,39 @@ export const LiveScreenMonitor: React.FC<LiveScreenMonitorProps> = ({
   onLockScreen,
   onUnlockScreen,
   onRunAIScan,
-  childName
+  childName,
+  deviceId
 }) => {
   const [isScanning, setIsScanning] = useState(false);
   const [customLockMsg, setCustomLockMsg] = useState("Screen time has been locked by Parent. Time to read or sleep!");
+  const [liveScreenFrame, setLiveScreenFrame] = useState<string | null>(currentScreenImage);
+
+  // Poll for real-time live screen cast frames
+  useEffect(() => {
+    let isSubscribed = true;
+    const pollInterval = setInterval(async () => {
+      try {
+        const query = deviceId ? `?deviceId=${deviceId}` : '';
+        const res = await fetch(getApiUrl(`/api/device/stream-frame${query}`));
+        if (res.ok && isSubscribed) {
+          const data = await res.json();
+          if (data.success && data.stream?.screenFrame?.frame) {
+            setLiveScreenFrame(data.stream.screenFrame.frame);
+          }
+        }
+      } catch (e) {}
+    }, 800);
+
+    return () => {
+      isSubscribed = false;
+      clearInterval(pollInterval);
+    };
+  }, [deviceId]);
 
   const handleTriggerScan = async () => {
     setIsScanning(true);
     try {
-      await onRunAIScan(currentScreenContent, currentApp, currentScreenImage || undefined);
+      await onRunAIScan(currentScreenContent, currentApp, (liveScreenFrame || currentScreenImage) || undefined);
     } finally {
       setIsScanning(false);
     }
@@ -60,6 +84,8 @@ export const LiveScreenMonitor: React.FC<LiveScreenMonitorProps> = ({
       default: return 'bg-emerald-50 border-emerald-200 text-emerald-700';
     }
   };
+
+  const activeImage = liveScreenFrame || currentScreenImage;
 
   return (
     <div className="grid grid-cols-1 lg:grid-cols-12 gap-6 items-start">
@@ -78,7 +104,7 @@ export const LiveScreenMonitor: React.FC<LiveScreenMonitorProps> = ({
             <div className="flex items-center gap-2">
               <div className="flex items-center gap-1.5 bg-emerald-50 border border-emerald-200 px-2.5 py-0.5 rounded-full text-emerald-700">
                 <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse shrink-0" />
-                <span className="text-[10px] font-bold font-mono tracking-wider uppercase">Live Sync</span>
+                <span className="text-[10px] font-bold font-mono tracking-wider uppercase">Live Stream Cast</span>
               </div>
             </div>
           </div>
@@ -105,10 +131,10 @@ export const LiveScreenMonitor: React.FC<LiveScreenMonitorProps> = ({
                         "{customLockMsg || 'Screen time has been locked by Parent.'}"
                       </p>
                     </div>
-                  ) : currentScreenImage ? (
+                  ) : activeImage ? (
                     <div className="absolute inset-0 z-20 bg-black flex items-center justify-center">
                       <img 
-                        src={currentScreenImage} 
+                        src={activeImage} 
                         alt="Live child screen stream" 
                         className="w-full h-full object-contain"
                       />
@@ -123,23 +149,19 @@ export const LiveScreenMonitor: React.FC<LiveScreenMonitorProps> = ({
                       <div className="bg-white border-b border-slate-200 p-1.5 px-2 flex items-center gap-1.5">
                         <Globe className="w-3 h-3 text-slate-500 shrink-0" />
                         <span className="text-[9px] font-mono text-slate-600 truncate flex-1">
-                          {currentScreenTitle || 'kids.nationalgeographic.com'}
+                          {currentScreenTitle || 'Standby'}
                         </span>
                       </div>
 
                       <div className="flex-1 p-3 space-y-2 overflow-y-auto">
                         <div className="p-1 bg-indigo-50 rounded border border-indigo-100 text-center">
                           <span className="text-[8px] font-bold text-indigo-700 tracking-wide block uppercase">
-                            {currentApp || "Chrome Browser"}
+                            {currentApp || "Device Standby"}
                           </span>
                         </div>
-
-                        <div className="space-y-1">
-                          <div className="h-1.5 w-12 bg-slate-300 rounded" />
-                          <p className="text-[8.5px] text-slate-700 leading-relaxed font-sans bg-white p-2 rounded-lg border border-slate-200 shadow-3xs max-h-[90px] overflow-hidden">
-                            {currentScreenContent || 'Explore amazing facts about wild animals, science, space, and historic events.'}
-                          </p>
-                        </div>
+                        <p className="text-[10px] text-slate-600 leading-snug">
+                          {currentScreenContent || "Waiting for active screen interaction from child device."}
+                        </p>
                       </div>
                     </div>
                   )}
@@ -148,152 +170,116 @@ export const LiveScreenMonitor: React.FC<LiveScreenMonitorProps> = ({
               </div>
             </div>
 
-            {/* Process & Content Details Panel (7 cols) */}
-            <div className="md:col-span-7 space-y-3.5">
-              <div className="space-y-1">
-                <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider block">Foreground Application</span>
-                <span className="px-3 py-1 text-xs font-mono font-bold bg-slate-100 border border-slate-200 text-slate-800 rounded-lg inline-block">
-                  {currentApp || "Google Chrome"}
-                </span>
-              </div>
-
-              <div className="space-y-1">
-                <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider block">Active Page / Window Title</span>
-                <p className="text-xs font-mono bg-slate-50 p-2.5 rounded-xl border border-slate-200 text-slate-800 break-all">
-                  {currentScreenTitle || "Home Screen / System Launcher"}
-                </p>
-              </div>
-
-              <div className="space-y-1">
-                <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider block">Transmitted Screen Text</span>
-                <div className="bg-slate-50 p-3 rounded-xl border border-slate-200 text-xs text-slate-800 leading-relaxed font-mono min-h-[85px] max-h-[120px] overflow-y-auto whitespace-pre-wrap">
-                  {currentScreenContent || "Active text transmitted from child phone. Launch Child Mode to simulate or share screen."}
+            {/* Screen Telemetry & Metadata (7 cols) */}
+            <div className="md:col-span-7 flex flex-col justify-between space-y-4">
+              <div className="space-y-3">
+                
+                <div>
+                  <span className="text-[10px] font-bold uppercase text-slate-400 font-mono tracking-wider">Active Foreground App</span>
+                  <div className="flex items-center gap-2 mt-0.5">
+                    <Smartphone className="w-4 h-4 text-indigo-600" />
+                    <span className="font-bold text-sm text-slate-900">{currentApp || "Standby / Idle"}</span>
+                  </div>
                 </div>
+
+                <div>
+                  <span className="text-[10px] font-bold uppercase text-slate-400 font-mono tracking-wider">Live Screen Title</span>
+                  <p className="text-xs font-semibold text-slate-700 mt-0.5 line-clamp-1">
+                    {currentScreenTitle || "No active title"}
+                  </p>
+                </div>
+
+                <div className="p-3 bg-slate-50 rounded-xl border border-slate-200">
+                  <span className="text-[10px] font-bold uppercase text-slate-400 font-mono tracking-wider block mb-1">
+                    OCR / Text Extracted on Device
+                  </span>
+                  <p className="text-xs text-slate-600 line-clamp-3 leading-relaxed font-sans">
+                    {currentScreenContent || "No text data detected yet."}
+                  </p>
+                </div>
+
               </div>
 
-              <button
-                onClick={handleTriggerScan}
-                disabled={isScanning}
-                className="w-full py-2.5 bg-indigo-600 hover:bg-indigo-700 disabled:bg-slate-300 text-white font-bold text-xs rounded-xl transition-all shadow-xs flex items-center justify-center gap-2"
-              >
-                {isScanning ? (
-                  <>
-                    <RefreshCw className="w-4 h-4 animate-spin" />
-                    <span>Gemini AI Safety Radar Scanning...</span>
-                  </>
+              {/* Instant Lock Remote Button */}
+              <div className="pt-2 border-t border-slate-100 flex items-center gap-2">
+                {isLocked ? (
+                  <button
+                    onClick={onUnlockScreen}
+                    className="w-full py-2.5 bg-emerald-600 hover:bg-emerald-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition-colors"
+                  >
+                    <Unlock className="w-4 h-4" />
+                    Unlock Device Screen
+                  </button>
                 ) : (
-                  <>
-                    <Sparkles className="w-4 h-4" />
-                    <span>Scan Content with Gemini AI Safety Radar</span>
-                  </>
+                  <button
+                    onClick={() => onLockScreen("Safety policy limit reached", customLockMsg)}
+                    className="w-full py-2.5 bg-red-600 hover:bg-red-700 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 shadow-xs transition-colors"
+                  >
+                    <Lock className="w-4 h-4" />
+                    Instantly Lock Device
+                  </button>
                 )}
-              </button>
+              </div>
             </div>
 
-          </div>
-        </div>
-
-        {/* Remote Screen Lock & Message Settings */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
-          <div className="flex items-center gap-2 border-b border-slate-100 pb-2.5">
-            <Sliders className="w-4 h-4 text-slate-600" />
-            <h3 className="font-bold text-sm text-slate-900">Remote Screen Lock Controller</h3>
-          </div>
-
-          <div className="space-y-3 text-xs">
-            <div>
-              <label className="text-[10px] font-bold uppercase text-slate-400 block mb-1">
-                Custom Message on Child Locked Screen
-              </label>
-              <input
-                type="text"
-                value={customLockMsg}
-                onChange={(e) => setCustomLockMsg(e.target.value)}
-                placeholder="e.g. Screen time limit reached. Please read books or rest!"
-                className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-orange-500"
-              />
-            </div>
-
-            <div className="flex gap-3 pt-1">
-              <button
-                onClick={() => onLockScreen("Parent enforced screen lock", customLockMsg)}
-                className={`flex-1 py-2 rounded-xl font-bold border transition-all flex items-center justify-center gap-1.5 text-xs shadow-2xs ${
-                  isLocked 
-                    ? 'bg-red-50 text-red-700 border-red-200' 
-                    : 'bg-red-600 hover:bg-red-700 text-white border-transparent'
-                }`}
-              >
-                <Lock className="w-4 h-4" />
-                <span>{isLocked ? 'SCREEN LOCKED' : 'REMOTE LOCK NOW'}</span>
-              </button>
-
-              {/* Fixed UNLOCK button calling onUnlockScreen correctly */}
-              <button
-                onClick={onUnlockScreen}
-                disabled={!isLocked}
-                className="flex-1 py-2 bg-emerald-50 hover:bg-emerald-100 disabled:opacity-40 text-emerald-800 border border-emerald-300 rounded-xl font-bold flex items-center justify-center gap-1.5 text-xs transition-colors shadow-2xs"
-              >
-                <Unlock className="w-4 h-4 text-emerald-600" />
-                <span>UNLOCK PHONE</span>
-              </button>
-            </div>
           </div>
         </div>
 
       </div>
 
-      {/* Right Column: Gemini Safety Scan Report & Score (5 cols) */}
+      {/* Right Column: AI Safety Radar (5 cols) */}
       <div className="lg:col-span-5 space-y-6">
+        
         <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
-          
-          <div className="flex items-center gap-2 border-b border-slate-100 pb-2.5">
-            <Sparkles className="w-4 h-4 text-orange-500" />
-            <h3 className="font-bold text-sm text-slate-900">Gemini AI Safety Radar Report</h3>
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <div className="flex items-center gap-2">
+              <Sparkles className="w-4 h-4 text-orange-600" />
+              <h3 className="font-bold text-sm text-slate-900">Gemini Safety Radar</h3>
+            </div>
+            
+            <button
+              onClick={handleTriggerScan}
+              disabled={isScanning}
+              className="px-3 py-1 bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200 rounded-lg text-xs font-bold flex items-center gap-1.5 transition-all disabled:opacity-50"
+            >
+              <RefreshCw className={`w-3.5 h-3.5 ${isScanning ? 'animate-spin' : ''}`} />
+              <span>{isScanning ? 'Scanning...' : 'Scan Now'}</span>
+            </button>
           </div>
 
-          {/* Safety Score Meter */}
-          <div className="text-center p-4 bg-slate-50 rounded-2xl border border-slate-200 space-y-1">
-            <div className="text-4xl font-black text-slate-900 tracking-tight">
-              {aiSafetyStatus.safetyScore}%
+          <div className={`p-4 rounded-xl border ${getRiskColor(aiSafetyStatus.riskLevel)} space-y-2`}>
+            <div className="flex items-center justify-between">
+              <span className="font-black text-xs uppercase tracking-widest font-mono">
+                SAFETY LEVEL: {aiSafetyStatus.riskLevel}
+              </span>
+              <span className="text-xs font-bold font-mono">
+                {aiSafetyStatus.safetyScore}/100
+              </span>
             </div>
-            <p className="text-[11px] font-bold text-slate-500 uppercase tracking-wider">
-              Child Safety Confidence Rating
+            <p className="text-xs font-medium leading-relaxed">
+              {aiSafetyStatus.summary}
             </p>
           </div>
 
-          {/* Risk Level Badge */}
-          <div className={`p-3.5 rounded-xl border text-xs flex items-start gap-2.5 ${getRiskColor(aiSafetyStatus.riskLevel)}`}>
-            {aiSafetyStatus.riskLevel === 'SAFE' ? (
-              <CheckCircle2 className="w-5 h-5 shrink-0 text-emerald-600 mt-0.5" />
-            ) : (
-              <AlertTriangle className="w-5 h-5 shrink-0 text-amber-600 mt-0.5" />
-            )}
-            <div>
-              <span className="font-bold block text-slate-950">Safety Status: {aiSafetyStatus.riskLevel}</span>
-              <span className="text-[11px] block mt-0.5 leading-normal">
-                {aiSafetyStatus.detectedCategories?.join(', ') || 'General youth safety standards applied'}
-              </span>
+          <div className="space-y-2">
+            <span className="text-[10px] font-bold uppercase text-slate-400 font-mono tracking-wider">
+              Detected Categories
+            </span>
+            <div className="flex flex-wrap gap-1.5">
+              {aiSafetyStatus.detectedCategories?.map((cat, i) => (
+                <span key={i} className="px-2.5 py-1 bg-slate-100 text-slate-700 text-xs rounded-lg font-medium border border-slate-200">
+                  {cat}
+                </span>
+              ))}
             </div>
           </div>
 
-          {/* AI Safety Summary & Action */}
-          <div className="space-y-3.5 text-xs pt-1">
-            <div className="space-y-1">
-              <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">AI Content Analysis Summary</span>
-              <p className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-slate-700 leading-relaxed font-sans">
-                {aiSafetyStatus.summary || "Trigger an AI Scan to audit active screen contents for child safety risks."}
-              </p>
-            </div>
-
-            <div className="space-y-1">
-              <span className="text-[10px] font-bold uppercase text-slate-400 tracking-wider">Recommended Parent Action</span>
-              <p className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-slate-700 leading-relaxed font-sans font-medium">
-                {aiSafetyStatus.suggestedAction || "Content looks safe. Continue standard monitoring."}
-              </p>
-            </div>
+          <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs text-slate-600">
+            <b className="text-slate-800 block mb-0.5">Recommended Action:</b>
+            {aiSafetyStatus.suggestedAction}
           </div>
-
         </div>
+
       </div>
 
     </div>
