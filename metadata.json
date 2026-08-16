@@ -1,0 +1,6 @@
+{
+  "name": "Parental Control & Child Tracker",
+  "description": "Real-time child safety monitoring dashboard with live GPS tracking, dual camera feeds, live screen monitoring, AI inappropriate content detection, app usage controls, and remote device locking.",
+  "requestFramePermissions": ["camera", "geolocation"],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
