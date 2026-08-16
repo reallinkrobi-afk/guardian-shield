@@ -73,6 +73,11 @@ export default function App() {
     }
   };
 
+  // Initialize device-unique Pairing Code
+  useEffect(() => {
+    let savedCode = localStorage.getItem('child_pairing_code');
+    let savedDevId = localStorage.getItem('child_device_id');
+
     if (isCapacitor) {
       if (!savedCode) {
         const codePart1 = Math.floor(100 + Math.random() * 900);
