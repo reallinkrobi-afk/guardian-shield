@@ -517,9 +517,14 @@ app.post("/api/device/update", (req, res) => {
   
   if (updates.location !== undefined && updates.location.lat) {
     currentDeviceState.location = { ...currentDeviceState.location, ...updates.location };
-    currentDeviceState.locationHistory.unshift({ ...currentDeviceState.location });
-    if (currentDeviceState.locationHistory.length > 50) {
-      currentDeviceState.locationHistory = currentDeviceState.locationHistory.slice(0, 50);
+    if (!currentDeviceState.locationHistory) currentDeviceState.locationHistory = [];
+    const lastPoint = currentDeviceState.locationHistory[0];
+    const isNewPoint = !lastPoint || Math.abs(lastPoint.lat - updates.location.lat) > 0.00005 || Math.abs(lastPoint.lng - updates.location.lng) > 0.00005;
+    if (isNewPoint) {
+      currentDeviceState.locationHistory.unshift({ ...currentDeviceState.location });
+      if (currentDeviceState.locationHistory.length > 50) {
+        currentDeviceState.locationHistory = currentDeviceState.locationHistory.slice(0, 50);
+      }
     }
   }
   
