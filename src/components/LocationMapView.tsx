@@ -16,7 +16,10 @@ import {
   Footprints,
   Trash2,
   X,
-  AlertTriangle
+  AlertTriangle,
+  RefreshCw,
+  Zap,
+  Radio
 } from 'lucide-react';
 
 interface LocationMapViewProps {
@@ -33,7 +36,7 @@ interface LocationMapViewProps {
 
 export const LocationMapView: React.FC<LocationMapViewProps> = ({
   location,
-  locationHistory,
+  locationHistory = [],
   geofences = [],
   batteryLevel,
   childName,
@@ -45,6 +48,8 @@ export const LocationMapView: React.FC<LocationMapViewProps> = ({
   const mapContainerRef = useRef<HTMLDivElement>(null);
   const mapInstanceRef = useRef<L.Map | null>(null);
   const markerRef = useRef<L.Marker | null>(null);
+  const accuracyCircleRef = useRef<L.Circle | null>(null);
+  const pathLineRef = useRef<L.Polyline | null>(null);
   const circlesRef = useRef<L.Circle[]>([]);
 
   const [sirenPlaying, setSirenPlaying] = useState(false);
@@ -55,24 +60,29 @@ export const LocationMapView: React.FC<LocationMapViewProps> = ({
   const [newFenceLat, setNewFenceLat] = useState(location.lat || 23.8103);
   const [newFenceLng, setNewFenceLng] = useState(location.lng || 90.4125);
 
+  const hasRealGps = location.lat && (location.lat !== 23.8103 || !location.address?.includes("Waiting"));
+
   // Initialize or update Leaflet Map
   useEffect(() => {
     if (!mapContainerRef.current) return;
 
+    const lat = location.lat || 23.8103;
+    const lng = location.lng || 90.4125;
+
     if (!mapInstanceRef.current) {
       const map = L.map(mapContainerRef.current, {
-        center: [location.lat || 23.8103, location.lng || 90.4125],
-        zoom: 15,
+        center: [lat, lng],
+        zoom: 16,
         zoomControl: false
       });
 
       L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
-        attribution: '&copy; OpenStreetMap contributors'
+        attribution: '&copy; OpenStreetMap contributors',
+        maxZoom: 19
       }).addTo(map);
 
       L.control.zoom({ position: 'bottomright' }).addTo(map);
 
-      // Map click handler to select coordinates for geofences
       map.on('click', (e: L.LeafletMouseEvent) => {
         setNewFenceLat(e.latlng.lat);
         setNewFenceLng(e.latlng.lng);
@@ -80,40 +90,75 @@ export const LocationMapView: React.FC<LocationMapViewProps> = ({
 
       mapInstanceRef.current = map;
     } else {
-      mapInstanceRef.current.setView([location.lat, location.lng], mapInstanceRef.current.getZoom());
+      mapInstanceRef.current.panTo([lat, lng], { animate: true, duration: 0.8 });
     }
 
     const map = mapInstanceRef.current;
 
-    // Custom child marker icon
+    // Custom child marker icon with animated ping
     const childIcon = L.divIcon({
       className: 'custom-child-marker',
       html: `
         <div class="relative flex items-center justify-center">
-          <span class="animate-ping absolute inline-flex h-9 w-9 rounded-full bg-emerald-400 opacity-75"></span>
-          <div class="relative w-8 h-8 rounded-full bg-emerald-600 border-2 border-white shadow-md flex items-center justify-center text-white">
-            <svg class="w-4 h-4" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
+          <span class="animate-ping absolute inline-flex h-10 w-10 rounded-full bg-emerald-400 opacity-75"></span>
+          <div class="relative w-9 h-9 rounded-full bg-gradient-to-tr from-emerald-600 to-teal-500 border-2 border-white shadow-xl flex items-center justify-center text-white font-bold text-xs">
+            <svg class="w-5 h-5" fill="none" stroke="currentColor" stroke-width="2.5" viewBox="0 0 24 24">
               <path stroke-linecap="round" stroke-linejoin="round" d="M15 10.5a3 3 0 1 1-6 0 3 3 0 0 1 6 0Z"/>
               <path stroke-linecap="round" stroke-linejoin="round" d="M19.5 10.5c0 7.142-7.5 11.25-7.5 11.25S4.5 17.642 4.5 10.5a7.5 7.5 0 1 1 15 0Z"/>
             </svg>
           </div>
         </div>
       `,
-      iconSize: [32, 32],
-      iconAnchor: [16, 16]
+      iconSize: [36, 36],
+      iconAnchor: [18, 18]
     });
 
     if (markerRef.current) {
-      markerRef.current.setLatLng([location.lat || 23.8103, location.lng || 90.4125]);
+      markerRef.current.setLatLng([lat, lng]);
     } else {
-      markerRef.current = L.marker([location.lat || 23.8103, location.lng || 90.4125], { icon: childIcon }).addTo(map);
+      markerRef.current = L.marker([lat, lng], { icon: childIcon }).addTo(map);
     }
 
-    const isWaiting = !location.lat || (location.lat === 23.8103 && location.address?.includes("Waiting"));
-    if (isWaiting) {
-      markerRef.current.bindPopup(`<b>Waiting for Child Phone Connection</b><br>Install GuardianShield.apk & pair to view live GPS.`).openPopup();
+    // Popup content with live speed & accuracy
+    const popupHtml = `
+      <div style="font-family: system-ui, sans-serif; padding: 4px; min-width: 180px;">
+        <b style="font-size: 13px; color: #0f172a;">📱 ${childName}</b>
+        <p style="font-size: 11px; color: #475569; margin: 4px 0 6px 0;">${location.address}</p>
+        <div style="display: flex; gap: 8px; font-size: 10px; font-family: monospace; color: #059669; font-weight: bold;">
+          <span>⚡ ${location.speed || 0} km/h</span>
+          <span>🎯 ±${location.accuracy || 5}m</span>
+        </div>
+      </div>
+    `;
+    markerRef.current.bindPopup(popupHtml);
+
+    // Accuracy Circle
+    if (accuracyCircleRef.current) {
+      accuracyCircleRef.current.setLatLng([lat, lng]);
+      accuracyCircleRef.current.setRadius(location.accuracy || 15);
     } else {
-      markerRef.current.bindPopup(`<b>${childName} is here</b><br>${location.address}`).openPopup();
+      accuracyCircleRef.current = L.circle([lat, lng], {
+        radius: location.accuracy || 15,
+        color: '#10b981',
+        fillColor: '#10b981',
+        fillOpacity: 0.1,
+        weight: 1.5
+      }).addTo(map);
+    }
+
+    // Live Breadcrumb Trail Polyline
+    if (locationHistory.length > 1) {
+      const latLngs: [number, number][] = locationHistory.map(h => [h.lat, h.lng]);
+      if (pathLineRef.current) {
+        pathLineRef.current.setLatLngs(latLngs);
+      } else {
+        pathLineRef.current = L.polyline(latLngs, {
+          color: '#f97316',
+          weight: 3,
+          dashArray: '6, 8',
+          opacity: 0.7
+        }).addTo(map);
+      }
     }
 
     // Render Geofence Circles
@@ -132,9 +177,9 @@ export const LocationMapView: React.FC<LocationMapViewProps> = ({
       circlesRef.current.push(circle);
     });
 
-  }, [location, geofences, childName]);
+  }, [location, locationHistory, geofences, childName]);
 
-  // Real Audible Siren Synthesizer using Web Audio API
+  // Audible Siren Synthesizer
   const playSirenSynthesizer = () => {
     try {
       const AudioContextClass = window.AudioContext || (window as any).webkitAudioContext;
@@ -144,8 +189,6 @@ export const LocationMapView: React.FC<LocationMapViewProps> = ({
       const gain = ctx.createGain();
 
       osc.type = 'sawtooth';
-      
-      // Siren frequency modulation (sweep between 600Hz and 1200Hz)
       const now = ctx.currentTime;
       osc.frequency.setValueAtTime(600, now);
       osc.frequency.linearRampToValueAtTime(1200, now + 0.5);
@@ -160,12 +203,9 @@ export const LocationMapView: React.FC<LocationMapViewProps> = ({
 
       osc.connect(gain);
       gain.connect(ctx.destination);
-
       osc.start(now);
       osc.stop(now + 3.0);
-    } catch (e) {
-      console.warn("Web audio siren not permitted:", e);
-    }
+    } catch (e) {}
   };
 
   const handleSiren = () => {
@@ -189,7 +229,7 @@ export const LocationMapView: React.FC<LocationMapViewProps> = ({
     <div className="grid grid-cols-1 lg:grid-cols-3 gap-6 items-start">
       
       {/* Main Map Card (2 cols) */}
-      <div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs flex flex-col min-h-[500px]">
+      <div className="lg:col-span-2 bg-white border border-slate-200 rounded-2xl overflow-hidden shadow-xs flex flex-col min-h-[520px]">
         
         {/* Map Header Toolbar */}
         <div className="bg-slate-50 border-b border-slate-200 px-4 py-3 flex flex-wrap items-center justify-between gap-3">
@@ -199,12 +239,16 @@ export const LocationMapView: React.FC<LocationMapViewProps> = ({
             </div>
             <div>
               <h2 className="text-sm font-bold text-slate-900 flex items-center gap-2">
-                Real-Time GPS Location Tracking
-                <span className="text-[10px] font-mono px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 border border-emerald-200 font-bold">
-                  Live Feed
+                Real-Time Hardware GPS Tracking
+                <span className={`text-[10px] font-mono px-2 py-0.5 rounded-full font-bold border ${
+                  hasRealGps 
+                    ? 'bg-emerald-50 text-emerald-700 border-emerald-300' 
+                    : 'bg-amber-50 text-amber-700 border-amber-300'
+                }`}>
+                  {hasRealGps ? '● 24/7 LIVE GPS' : 'WAITING FOR SIGNAL'}
                 </span>
               </h2>
-              <p className="text-xs text-slate-500 truncate max-w-md">
+              <p className="text-xs text-slate-600 truncate max-w-md mt-0.5">
                 {location.address}
               </p>
             </div>
@@ -212,155 +256,140 @@ export const LocationMapView: React.FC<LocationMapViewProps> = ({
 
           <div className="flex items-center gap-2">
             <button
-              onClick={() => mapInstanceRef.current?.setView([location.lat, location.lng], 16)}
+              onClick={() => mapInstanceRef.current?.setView([location.lat, location.lng], 17, { animate: true })}
               className="px-3 py-1.5 bg-white hover:bg-slate-50 text-slate-700 text-xs font-bold rounded-xl border border-slate-200 flex items-center gap-1.5 transition-colors shadow-2xs"
             >
               <Compass className="w-3.5 h-3.5 text-orange-500" />
-              Recenter
+              Recenter Map
             </button>
+            <button
+              onClick={() => setShowGeofenceModal(true)}
+              className="px-3 py-1.5 bg-orange-600 hover:bg-orange-700 text-white text-xs font-bold rounded-xl flex items-center gap-1.5 shadow-xs transition-colors"
+            >
+              <Plus className="w-3.5 h-3.5" />
+              Add Safe Zone
+            </button>
+          </div>
+        </div>
+
+        {/* Live GPS Telemetry Header Bar */}
+        <div className="bg-slate-900 text-white px-4 py-2 flex flex-wrap items-center justify-between text-xs gap-3 border-b border-slate-800 font-mono">
+          <div className="flex items-center gap-4">
+            <span className="flex items-center gap-1.5 text-emerald-400">
+              <Radio className="w-3.5 h-3.5 animate-pulse" />
+              <span>LAT: {location.lat?.toFixed(5) || '...'}, LNG: {location.lng?.toFixed(5) || '...'}</span>
+            </span>
+            <span className="text-slate-300">
+              SPEED: <b className="text-white">{location.speed || 0} km/h</b>
+            </span>
+            <span className="text-slate-300">
+              ACCURACY: <b className="text-white">±{location.accuracy || 5}m</b>
+            </span>
+          </div>
+
+          <div className="flex items-center gap-2 text-slate-400 text-[11px]">
+            <Clock className="w-3 h-3" />
+            <span>Updated: {new Date(location.timestamp).toLocaleTimeString()}</span>
+          </div>
+        </div>
+
+        {/* Interactive Map View */}
+        <div className="relative flex-1 min-h-[440px] bg-slate-100">
+          <div ref={mapContainerRef} className="absolute inset-0 w-full h-full z-10" />
+
+          {/* Quick Siren Panic Trigger on Map */}
+          <div className="absolute bottom-4 left-4 z-20">
             <button
               onClick={handleSiren}
               disabled={sirenPlaying}
-              className={`px-3.5 py-1.5 text-xs font-bold rounded-xl border flex items-center gap-1.5 transition-all shadow-2xs ${
+              className={`px-4 py-2.5 rounded-xl font-bold text-xs flex items-center gap-2 shadow-lg transition-all ${
                 sirenPlaying
-                  ? 'bg-red-600 text-white border-red-700 animate-bounce'
-                  : 'bg-red-50 hover:bg-red-100 text-red-700 border-red-200'
+                  ? 'bg-red-600 text-white animate-bounce'
+                  : 'bg-slate-900/90 hover:bg-slate-900 text-white border border-slate-700 backdrop-blur-md'
               }`}
             >
-              <Volume2 className="w-4 h-4" />
-              {sirenPlaying ? 'SIREN ALARMING...' : 'PLAY SIREN'}
+              <Volume2 className="w-4 h-4 text-red-400" />
+              <span>{sirenPlaying ? 'RINGING PHONE SIREN...' : 'Play Audible Alarm'}</span>
             </button>
           </div>
         </div>
 
-        {/* Leaflet Map Container */}
-        <div className="relative flex-1 min-h-[420px] bg-slate-100">
-          <div ref={mapContainerRef} className="absolute inset-0 z-10" />
-
-          {/* Floating Live Coordinates Overlay */}
-          <div className="absolute bottom-4 left-4 z-20 bg-white/95 backdrop-blur-xs border border-slate-200 rounded-xl p-3 shadow-md text-xs space-y-1 max-w-xs text-slate-800">
-            <div className="flex items-center justify-between font-bold border-b border-slate-100 pb-1">
-              <span className="text-slate-800 flex items-center gap-1">
-                <Footprints className="w-3.5 h-3.5 text-orange-500" />
-                Live GPS Coordinates
-              </span>
-            </div>
-            <div className="grid grid-cols-2 gap-3 font-mono text-[11px] pt-1 text-slate-600">
-              <div>
-                <span className="text-slate-400 block text-[9px]">LATITUDE</span>
-                <span className="text-slate-900 font-bold">{location.lat.toFixed(5)}</span>
-              </div>
-              <div>
-                <span className="text-slate-400 block text-[9px]">LONGITUDE</span>
-                <span className="text-slate-900 font-bold">{location.lng.toFixed(5)}</span>
-              </div>
-            </div>
-          </div>
-        </div>
-
-        {/* Real GPS Receiver Status Bar */}
-        <div className="bg-slate-50 px-4 py-2.5 flex items-center justify-between gap-2 text-xs border-t border-slate-200">
-          <span className="text-slate-600 font-medium flex items-center gap-1.5">
-            <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-            Live Hardware GPS Receiver Active • Speed: {location.speed || 0} km/h • Accuracy: ±{location.accuracy || 5}m
-          </span>
-          <span className="text-slate-500 font-mono text-[11px]">
-            {new Date(location.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit', second: '2-digit' })}
-          </span>
-        </div>
-
       </div>
 
-      {/* Right Sidebar: Geofences & GPS Logs (1 col) */}
+      {/* Right Column: Safe Zones & Movement Log (1 col) */}
       <div className="space-y-6">
         
-        {/* Dynamic Safe Zones Card */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs space-y-3">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-            <div className="flex items-center gap-2">
+        {/* Geofences / Safe Zones List */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
               <ShieldAlert className="w-4 h-4 text-orange-600" />
-              <h3 className="font-bold text-sm text-slate-900">Geofence Safe Zones</h3>
-            </div>
-            <button
-              onClick={() => {
-                setNewFenceLat(location.lat);
-                setNewFenceLng(location.lng);
-                setShowGeofenceModal(true);
-              }}
-              className="px-2.5 py-1 bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200 rounded-lg text-xs font-bold flex items-center gap-1 shadow-2xs"
-            >
-              <Plus className="w-3.5 h-3.5" /> Add Zone
-            </button>
+              Geofence Safe & Restricted Zones
+            </h3>
+            <span className="text-xs font-mono text-slate-500">{geofences.length} Zones</span>
           </div>
 
-          <div className="space-y-2.5 max-h-[220px] overflow-y-auto pr-1">
+          <div className="space-y-2.5">
             {geofences.length > 0 ? (
               geofences.map(gf => (
-                <div key={gf.id} className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-xs space-y-1.5">
-                  <div className="flex items-center justify-between">
-                    <span className="font-bold text-slate-900 flex items-center gap-1.5">
-                      <span className={`w-2 h-2 rounded-full ${gf.type === 'safe' ? 'bg-emerald-500' : 'bg-red-500'}`} />
-                      {gf.name}
-                    </span>
-                    <div className="flex items-center gap-2">
-                      <span className={`text-[10px] font-bold px-1.5 py-0.5 rounded uppercase font-mono ${
-                        gf.type === 'safe' ? 'bg-emerald-100 text-emerald-800' : 'bg-red-100 text-red-800'
-                      }`}>
-                        {gf.type}
-                      </span>
-                      {onDeleteGeofence && (
-                        <button 
-                          onClick={() => onDeleteGeofence(gf.id)}
-                          className="text-slate-400 hover:text-red-600 transition-colors"
-                          title="Delete Zone"
-                        >
-                          <Trash2 className="w-3.5 h-3.5" />
-                        </button>
-                      )}
+                <div 
+                  key={gf.id}
+                  className="p-3 bg-slate-50 border border-slate-200 rounded-xl flex items-center justify-between hover:border-slate-300 transition-colors"
+                >
+                  <div className="flex items-center gap-2.5">
+                    <div className={`w-3 h-3 rounded-full ${gf.type === 'safe' ? 'bg-emerald-500' : 'bg-red-500'}`} />
+                    <div>
+                      <b className="text-xs text-slate-900 block">{gf.name}</b>
+                      <span className="text-[10px] text-slate-500 font-mono">Radius: {gf.radiusMeters}m • {gf.type.toUpperCase()}</span>
                     </div>
                   </div>
-                  <p className="text-slate-500 text-[11px]">Radius: {gf.radiusMeters} meters</p>
-                  <button
-                    onClick={() => mapInstanceRef.current?.setView([gf.lat, gf.lng], 16)}
-                    className="text-[11px] text-orange-600 font-bold hover:underline"
-                  >
-                    Focus on Map →
-                  </button>
+                  {onDeleteGeofence && (
+                    <button
+                      onClick={() => onDeleteGeofence(gf.id)}
+                      className="p-1.5 text-slate-400 hover:text-red-600 rounded-lg transition-colors"
+                      title="Delete Zone"
+                    >
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  )}
                 </div>
               ))
             ) : (
-              <div className="text-center py-4 text-xs text-slate-400">
-                No geofence zones created yet. Click "+ Add Zone" to create one.
+              <div className="p-6 text-center text-xs text-slate-400 bg-slate-50 rounded-xl border border-dashed border-slate-200">
+                No custom geofences created yet. Click <b>Add Safe Zone</b> above to set boundaries.
               </div>
             )}
           </div>
         </div>
 
-        {/* Location History Log Card */}
-        <div className="bg-white border border-slate-200 rounded-2xl p-4 shadow-xs space-y-3">
-          <div className="flex items-center justify-between border-b border-slate-100 pb-2.5">
-            <div className="flex items-center gap-2">
-              <Clock className="w-4 h-4 text-slate-500" />
-              <h3 className="font-bold text-sm text-slate-900">Recent GPS Logs</h3>
-            </div>
-            <span className="text-[10px] font-mono text-slate-400">{locationHistory.length} Recorded</span>
+        {/* Location History Logs */}
+        <div className="bg-white border border-slate-200 rounded-2xl p-5 shadow-xs space-y-4">
+          <div className="flex items-center justify-between border-b border-slate-100 pb-3">
+            <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
+              <Footprints className="w-4 h-4 text-orange-600" />
+              Recent Movement History
+            </h3>
+            <span className="text-xs font-mono text-slate-500">{locationHistory.length} Entries</span>
           </div>
 
-          <div className="space-y-2 max-h-[200px] overflow-y-auto pr-1">
+          <div className="space-y-2 max-h-60 overflow-y-auto pr-1">
             {locationHistory.length > 0 ? (
-              locationHistory.map((item, index) => (
-                <div key={index} className="p-2.5 bg-slate-50 rounded-xl border border-slate-200 text-xs flex items-center justify-between gap-2">
-                  <div className="space-y-0.5">
-                    <p className="font-bold text-slate-800 line-clamp-1">{item.address}</p>
-                    <p className="text-[10px] text-slate-500 font-mono">
-                      {new Date(item.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • GPS ±{item.accuracy}m
-                    </p>
+              locationHistory.slice(0, 8).map((hist, idx) => (
+                <div key={idx} className="p-2.5 bg-slate-50 rounded-xl border border-slate-100 flex items-center justify-between text-xs">
+                  <div>
+                    <span className="font-bold text-slate-800 line-clamp-1">{hist.address || `GPS (${hist.lat.toFixed(4)}, ${hist.lng.toFixed(4)})`}</span>
+                    <span className="text-[10px] text-slate-400 font-mono">
+                      {new Date(hist.timestamp).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })} • Speed: {hist.speed || 0} km/h
+                    </span>
                   </div>
+                  <span className="text-[10px] font-mono text-emerald-600 bg-emerald-50 px-2 py-0.5 rounded border border-emerald-200">
+                    ±{hist.accuracy || 10}m
+                  </span>
                 </div>
               ))
             ) : (
-              <div className="text-center py-6 text-slate-400 text-xs">
-                No location logs. Turn on GPS in Child Mode to log coordinates.
+              <div className="p-4 text-center text-xs text-slate-400">
+                No past location history recorded yet.
               </div>
             )}
           </div>
@@ -368,77 +397,84 @@ export const LocationMapView: React.FC<LocationMapViewProps> = ({
 
       </div>
 
-      {/* Geofence Creation Modal */}
+      {/* Add Geofence Modal */}
       {showGeofenceModal && (
-        <div className="fixed inset-0 z-50 bg-slate-900/50 backdrop-blur-xs flex items-center justify-center p-4">
-          <div className="bg-white border border-slate-200 rounded-3xl max-w-md w-full p-5 shadow-xl space-y-4">
+        <div className="fixed inset-0 bg-slate-950/60 backdrop-blur-xs z-50 flex items-center justify-center p-4">
+          <div className="bg-white border border-slate-200 rounded-3xl p-6 max-w-sm w-full space-y-4 shadow-2xl">
             <div className="flex items-center justify-between border-b border-slate-100 pb-3">
-              <h3 className="font-bold text-sm text-slate-900 flex items-center gap-2">
-                <ShieldAlert className="w-4 h-4 text-orange-600" /> Create Custom Geofence Zone
-              </h3>
-              <button onClick={() => setShowGeofenceModal(false)} className="text-slate-400 hover:text-slate-800">
-                <X className="w-5 h-5" />
+              <h3 className="text-sm font-bold text-slate-900">Create New Geofence Zone</h3>
+              <button onClick={() => setShowGeofenceModal(false)} className="text-slate-400 hover:text-slate-700">
+                <X className="w-4 h-4" />
               </button>
             </div>
 
             <form onSubmit={handleCreateGeofence} className="space-y-3 text-xs">
               <div>
                 <label className="font-bold text-slate-700 block mb-1">Zone Name</label>
-                <input
-                  type="text"
-                  required
+                <input 
+                  type="text" 
                   value={newFenceName}
-                  onChange={e => setNewFenceName(e.target.value)}
-                  placeholder="e.g. Grandma's House, Park, Tuition Center"
-                  className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-orange-500"
+                  onChange={(e) => setNewFenceName(e.target.value)}
+                  placeholder="e.g. Home, School, Park" 
+                  className="w-full px-3 py-2 border border-slate-300 rounded-xl focus:outline-hidden focus:border-orange-500 text-xs"
+                  required
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-3">
-                <div>
-                  <label className="font-bold text-slate-700 block mb-1">Zone Type</label>
-                  <select
-                    value={newFenceType}
-                    onChange={e => setNewFenceType(e.target.value as any)}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-orange-500"
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Zone Type</label>
+                <div className="grid grid-cols-2 gap-2">
+                  <button
+                    type="button"
+                    onClick={() => setNewFenceType('safe')}
+                    className={`py-2 rounded-xl font-bold text-xs border ${
+                      newFenceType === 'safe'
+                        ? 'bg-emerald-50 text-emerald-700 border-emerald-300'
+                        : 'bg-slate-50 text-slate-600 border-slate-200'
+                    }`}
                   >
-                    <option value="safe">Safe Area (Green)</option>
-                    <option value="restricted">Restricted Area (Red)</option>
-                  </select>
-                </div>
-
-                <div>
-                  <label className="font-bold text-slate-700 block mb-1">Radius (Meters)</label>
-                  <input
-                    type="number"
-                    min={50}
-                    max={5000}
-                    value={newFenceRadius}
-                    onChange={e => setNewFenceRadius(Number(e.target.value))}
-                    className="w-full bg-slate-50 border border-slate-200 rounded-xl px-3 py-2 text-xs text-slate-800 focus:outline-none focus:border-orange-500"
-                  />
+                    Safe Zone
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setNewFenceType('restricted')}
+                    className={`py-2 rounded-xl font-bold text-xs border ${
+                      newFenceType === 'restricted'
+                        ? 'bg-red-50 text-red-700 border-red-300'
+                        : 'bg-slate-50 text-slate-600 border-slate-200'
+                    }`}
+                  >
+                    Restricted Zone
+                  </button>
                 </div>
               </div>
 
-              <div className="p-3 bg-slate-50 rounded-xl border border-slate-200 text-[11px] text-slate-600 font-mono">
-                <span>Center Coordinates: </span>
-                <b>{newFenceLat.toFixed(4)}, {newFenceLng.toFixed(4)}</b>
-                <p className="text-[10px] text-slate-400 mt-0.5">Tip: You can also click anywhere on the map to place coordinates.</p>
+              <div>
+                <label className="font-bold text-slate-700 block mb-1">Radius (Meters): {newFenceRadius}m</label>
+                <input 
+                  type="range" 
+                  min="100" 
+                  max="2000" 
+                  step="50"
+                  value={newFenceRadius}
+                  onChange={(e) => setNewFenceRadius(Number(e.target.value))}
+                  className="w-full accent-orange-600"
+                />
               </div>
 
-              <div className="flex justify-end gap-2 pt-2 border-t border-slate-100">
+              <div className="pt-2 flex gap-2">
                 <button
                   type="button"
                   onClick={() => setShowGeofenceModal(false)}
-                  className="px-4 py-2 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold"
+                  className="flex-1 py-2.5 bg-slate-100 hover:bg-slate-200 text-slate-700 rounded-xl font-bold"
                 >
                   Cancel
                 </button>
                 <button
                   type="submit"
-                  className="px-5 py-2 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold shadow-xs"
+                  className="flex-1 py-2.5 bg-orange-600 hover:bg-orange-700 text-white rounded-xl font-bold shadow-xs"
                 >
-                  Save Geofence
+                  Save Zone
                 </button>
               </div>
             </form>
