@@ -12,7 +12,15 @@ export type ActiveTab =
 
 export type CameraPosition = 'front' | 'back' | 'off';
 
-export type RiskLevel = 'SAFE' | 'CAUTION' | 'DANGER';
+export interface DeviceSummary {
+  deviceId: string;
+  pairingCode: string;
+  deviceModel: string;
+  childName: string;
+  isOnline: boolean;
+  batteryLevel: number;
+  lastSeen: string;
+}
 
 export interface LocationData {
   lat: number;
