@@ -131,9 +131,9 @@ export const Header: React.FC<HeaderProps> = ({
                     Live Sync
                   </span>
                 </h1>
-                <p className="text-xs text-slate-500 font-mono flex items-center gap-1.5">
-                  Target: <span className="text-slate-800 font-semibold">{childName}</span>
-                  {pairingCode && (
+                <p className="text-[11px] text-slate-500 flex items-center gap-1.5 font-mono">
+                  Target: <span className="text-slate-800 font-semibold">{isOnline ? childName : 'No Device Paired'}</span>
+                  {isOnline && pairingCode && (
                     <span className="text-[10px] text-slate-400">({pairingCode})</span>
                   )}
                 </p>
@@ -143,8 +143,8 @@ export const Header: React.FC<HeaderProps> = ({
             {/* Mobile Online Status Indicator */}
             <div className="flex items-center gap-2 md:hidden">
               <div className="flex items-center gap-1.5 text-xs font-semibold px-2 py-0.5 rounded-full bg-slate-100 border border-slate-200">
-                <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500' : 'bg-red-500'}`} />
-                {isOnline ? 'Connected' : 'Offline'}
+                <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500' : 'bg-slate-400'}`} />
+                {isOnline ? 'Live Online' : 'No Device'}
               </div>
             </div>
           </div>
@@ -159,15 +159,21 @@ export const Header: React.FC<HeaderProps> = ({
           <div className="flex items-center gap-2 w-full md:w-auto justify-end">
             {/* Battery & Network Pill */}
             <div className="hidden lg:flex items-center gap-2 bg-slate-50 px-3 py-1.5 rounded-xl border border-slate-200 text-xs text-slate-600 font-mono">
-              <Wifi className="w-3.5 h-3.5 text-emerald-500" />
-              <span>Online</span>
-              <div className="w-px h-3 bg-slate-200" />
-              {isCharging ? (
-                <BatteryCharging className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
-              ) : (
-                <Battery className="w-3.5 h-3.5 text-slate-600" />
+              <span className={`w-2 h-2 rounded-full ${isOnline ? 'bg-emerald-500 animate-pulse' : 'bg-slate-400'}`} />
+              <span className={isOnline ? 'text-emerald-700 font-bold' : 'text-slate-500'}>
+                {isOnline ? 'Live Online' : 'No Device Connected'}
+              </span>
+              {isOnline && (
+                <>
+                  <div className="w-px h-3 bg-slate-200" />
+                  {isCharging ? (
+                    <BatteryCharging className="w-3.5 h-3.5 text-emerald-600 animate-pulse" />
+                  ) : (
+                    <Battery className="w-3.5 h-3.5 text-slate-600" />
+                  )}
+                  <span className="font-bold text-slate-800">{batteryLevel}%</span>
+                </>
               )}
-              <span className="font-bold text-slate-800">{batteryLevel}%</span>
             </div>
 
             {/* Pair Device Modal Button */}
