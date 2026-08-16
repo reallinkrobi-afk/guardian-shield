@@ -43,15 +43,21 @@ function loadPersistedState() {
     if (fs.existsSync(DATA_FILE)) {
       const data = fs.readFileSync(DATA_FILE, "utf-8");
       const parsed = JSON.parse(data);
-      currentDeviceState = {
-        ...DEFAULT_DEVICE_STATE,
-        ...parsed,
-        stealthSettings: {
-          ...DEFAULT_DEVICE_STATE.stealthSettings,
-          ...(parsed.stealthSettings || {})
-        }
-      };
-      console.log("Loaded persisted state from data/device_state.json");
+      // Auto-purge any legacy demo Dhaka / fake device mock data
+      if (parsed.deviceId === "DEV-CHILD-9841" || (parsed.location?.address && parsed.location.address.includes("Dhaka Central"))) {
+        currentDeviceState = { ...DEFAULT_DEVICE_STATE };
+        savePersistedState();
+      } else {
+        currentDeviceState = {
+          ...DEFAULT_DEVICE_STATE,
+          ...parsed,
+          stealthSettings: {
+            ...DEFAULT_DEVICE_STATE.stealthSettings,
+            ...(parsed.stealthSettings || {})
+          }
+        };
+      }
+      console.log("Loaded clean persisted state");
     } else {
       savePersistedState();
     }
@@ -87,6 +93,13 @@ if (apiKey) {
 // GET current state
 app.get("/api/device/state", (req, res) => {
   res.json({ success: true, state: currentDeviceState });
+});
+
+// POST reset state (clean zero-state wipe)
+app.post("/api/device/reset", (req, res) => {
+  currentDeviceState = { ...DEFAULT_DEVICE_STATE };
+  savePersistedState();
+  res.json({ success: true, message: "Device state reset to clean empty state", state: currentDeviceState });
 });
 
 // Helper: Calculate distance between two coordinates in meters (Haversine formula)
