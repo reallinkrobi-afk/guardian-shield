@@ -16,13 +16,15 @@ interface PairingModalProps {
   onClose: () => void;
   deviceState: ChildDeviceState;
   onPairDevice: (code: string) => void;
+  onResetDevice?: () => void;
 }
 
 export const PairingModal: React.FC<PairingModalProps> = ({
   isOpen,
   onClose,
   deviceState,
-  onPairDevice
+  onPairDevice,
+  onResetDevice
 }) => {
   const [inputCode, setInputCode] = useState('');
   const [pairedCode, setPairedCode] = useState<string | null>(null);
@@ -66,6 +68,9 @@ export const PairingModal: React.FC<PairingModalProps> = ({
     localStorage.removeItem('parent_paired_code');
     setPairedCode(null);
     setInputCode('');
+    if (onResetDevice) {
+      onResetDevice();
+    }
   };
 
   return (
