@@ -34,7 +34,20 @@ export const getApiUrl = (endpoint: string) => {
 };
 
 export default function App() {
-  const [viewMode, setViewMode] = useState<ViewMode>('parent');
+  const isCapacitor = typeof window !== 'undefined' && (
+    Boolean((window as any).Capacitor?.isNativePlatform?.()) || 
+    (window.location.protocol === 'https:' && window.location.hostname === 'localhost' && !window.location.port) ||
+    window.location.origin.includes('capacitor://')
+  );
+
+  const initialViewMode: ViewMode = (localStorage.getItem('app_view_mode') as ViewMode) || (isCapacitor ? 'child' : 'parent');
+  const [viewMode, setViewModeState] = useState<ViewMode>(initialViewMode);
+
+  const setViewMode = (mode: ViewMode) => {
+    localStorage.setItem('app_view_mode', mode);
+    setViewModeState(mode);
+  };
+
   const [activeTab, setActiveTab] = useState<ActiveTab>('location');
   const [showSetupGuide, setShowSetupGuide] = useState(false);
   const [showPairingModal, setShowPairingModal] = useState(false);
